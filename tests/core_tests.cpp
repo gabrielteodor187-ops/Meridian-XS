@@ -1316,6 +1316,37 @@ void test_movsxd_memory_operands() {
             "memory MOVSXD program should reach HLT");
 }
 
+
+void test_movzx_virtual_read_permissions() {
+    using meridian::core::PagePermissions;
+    using meridian::core::VirtualAddressSpace;
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory backing{0x76000, 2 * VirtualAddressSpace::page_size};
+    VirtualAddressSpace space{};
+    require(backing.write_le<std::uint8_t>(0x77000, 0x5a),
+            "MOVZX permission-test data should initialize");
+    require(space.map(0xc00000, backing, 0x76000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, false, true}),
+            "MOVZX code page should map read/execute");
+    require(space.map(0xd00000, backing, 0x77000, VirtualAddressSpace::page_size,
+                      PagePermissions{false, true, false}),
+            "MOVZX source page should map write-only");
+    const std::array<std::byte, 4> program{
+        // MOVZX RAX, byte [RDI].
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0xb6}, std::byte{0x07}
+    };
+    require(backing.write(0x76000, program), "MOVZX permission-test program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xc00000;
+    state.gpr[7] = 0xd00000;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, space) == StepResult::MemoryFault,
+            "MOVZX memory source must respect virtual-page read permissions");
+    require(state.rip == 0xc00000,
+            "rejected MOVZX memory read must leave RIP unchanged");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1347,6 +1378,7 @@ int main() {
         test_c7_cross_page_permission_fault_is_atomic();
         test_movsx_movzx_memory_operands();
         test_movsxd_memory_operands();
+        test_movzx_virtual_read_permissions();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

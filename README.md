@@ -112,3 +112,8 @@ Extended MOVSX and MOVZX byte/word forms to memory operands using base/displacem
 ### v0.31.0 — Memory-source MOVSXD
 
 Extended MOVSXD to read 32-bit operands from guest memory using base/displacement, SIB scaled-index, and RIP-relative forms. The result is sign-extended to 64 bits with REX.W, or sign-extended to 32 bits and then zero-extended into the GPR without REX.W. Memory reads honor the active memory backend's access checks.
+
+
+### v0.32.0 — MOVZX virtual read-permission coverage
+
+Added a CPU/virtual-address-space test proving that a memory-source MOVZX faults when its source page is mapped write-only. The test also verifies that RIP remains unchanged, confirming that these new load forms use the checked data-read path rather than instruction-fetch access.
