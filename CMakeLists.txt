@@ -1,15 +1,17 @@
 cmake_minimum_required(VERSION 3.24)
-project(MeridianXS VERSION 0.2.0 LANGUAGES CXX)
+project(MeridianXS VERSION 0.3.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-add_executable(meridian-xs
-    src/main.cpp
+set(MERIDIAN_CORE_SOURCES
     src/core/guest_memory.cpp
     src/cpu/cpu_state.cpp
+    src/cpu/interpreter.cpp
 )
+
+add_executable(meridian-xs src/main.cpp ${MERIDIAN_CORE_SOURCES})
 target_include_directories(meridian-xs PRIVATE include)
 
 if(MSVC)
@@ -20,11 +22,7 @@ endif()
 
 include(CTest)
 if(BUILD_TESTING)
-    add_executable(meridian-core-tests
-        tests/core_tests.cpp
-        src/core/guest_memory.cpp
-        src/cpu/cpu_state.cpp
-    )
+    add_executable(meridian-core-tests tests/core_tests.cpp ${MERIDIAN_CORE_SOURCES})
     target_include_directories(meridian-core-tests PRIVATE include)
     if(MSVC)
         target_compile_options(meridian-core-tests PRIVATE /W4 /permissive-)
