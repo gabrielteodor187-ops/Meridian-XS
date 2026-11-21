@@ -505,6 +505,57 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             return StepResult::UnsupportedInstruction;
 
 
+
+        // MOVD/MOVQ between a GPR or memory operand and an XMM register.
+        if (second == 0x6e || second == 0x7e) {
+            if (!operand_size_override || prefix_f3 || prefix_f2)
+                return StepResult::UnsupportedInstruction;
+            if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+                (state.control_registers[4] & (1ULL << 9U)) == 0)
+                return StepResult::UnsupportedInstruction;
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::size_t xmm_index =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t gpr_index =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            const std::size_t width = rex_w ? 8U : 4U;
+            const bool register_operand = (modrm >> 6U) == 3U;
+            std::uint64_t address = 0;
+            if (!register_operand &&
+                !decode_effective_address(state, memory, pc, modrm,
+                                          rex_b, rex_x, 0, address))
+                return StepResult::MemoryFault;
+
+            if (second == 0x6e) { // MOVD/MOVQ r/m, XMM
+                std::array<std::byte, 8> value{};
+                if (register_operand) {
+                    for (std::size_t i = 0; i < width; ++i)
+                        value[i] = static_cast<std::byte>(
+                            (state.gpr[gpr_index] >> (i * 8U)) & 0xffU);
+                } else if (!memory.read(address,
+                            std::span<std::byte>{value}.first(width))) {
+                    return StepResult::MemoryFault;
+                }
+                state.xmm[xmm_index].fill(std::byte{0});
+                std::copy_n(value.begin(), width, state.xmm[xmm_index].begin());
+            } else { // MOVD/MOVQ XMM, r/m
+                if (register_operand) {
+                    std::uint64_t value = 0;
+                    for (std::size_t i = 0; i < width; ++i)
+                        value |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(state.xmm[xmm_index][i]))
+                            << (i * 8U);
+                    state.gpr[gpr_index] = value;
+                } else if (!memory.write(address,
+                            std::span<const std::byte>{state.xmm[xmm_index]}.first(width))) {
+                    return StepResult::MemoryFault;
+                }
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // FXSAVE/FXRSTOR 512-byte state image (64-bit mode layout).
         if (second == 0xae) {
             if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||

@@ -39,6 +39,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
 - FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state).
+- Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers.
 - Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
@@ -340,3 +341,8 @@ Expanded the PSHUFD/SHUFPS test's guest-memory fixture so its RIP-relative instr
 ### v0.59.0 — FXSAVE/FXRSTOR state management
 
 Added 64-bit-mode FXSAVE/FXRSTOR memory forms with 16-byte alignment checks, CR4.OSFXSR gating, a 512-byte state image, MXCSR reserved-bit validation, XMM register save/restore, and opaque x87 register-state preservation. Added modeled x87 control/status/tag/opcode and instruction/data pointer fields plus MXCSR defaults to CpuState. Tests cover state round-trip, alignment rejection, and invalid MXCSR rejection. This does not implement x87 arithmetic or the full FPU exception model, and CPUID does not yet advertise the broader SIMD feature set.
+
+
+### v0.60.0 — MOVD/MOVQ scalar XMM transfers
+
+Added 32-bit MOVD and REX.W 64-bit MOVQ transfer forms between general-purpose registers or memory and XMM registers. Loads zero the unused upper XMM bits; 32-bit GPR destinations zero-extend. Tests cover register transfers and a memory-source MOVD. This does not add the separate F3-prefixed XMM-to-XMM MOVQ forms.

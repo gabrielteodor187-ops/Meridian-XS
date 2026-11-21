@@ -2876,6 +2876,62 @@ void test_fxsave_fxrstor_state_round_trip() {
             "invalid FXRSTOR image should not partially change XMM state");
 }
 
+
+void test_movd_movq_xmm_transfers() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31000, 0x200};
+    const std::array<std::byte, 18> program{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x6e}, std::byte{0xc0}, // MOVD XMM0,EAX
+        std::byte{0x66}, std::byte{0x48}, std::byte{0x0f}, std::byte{0x6e},
+        std::byte{0xc8}, // MOVQ XMM1,RAX
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x7e}, std::byte{0xc2}, // MOVD EDX,XMM0
+        std::byte{0x66}, std::byte{0x48}, std::byte{0x0f}, std::byte{0x7e},
+        std::byte{0xc1} // MOVQ RCX,XMM1
+    };
+    require(memory.write(0x31000, program), "MOVD/MOVQ program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31000;
+    state.gpr[0] = 0x1122334455667788ULL;
+    state.control_registers[4] = 1ULL << 9U;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVD from EAX to XMM0 should execute");
+    require(state.xmm[0][0] == std::byte{0x88} &&
+            state.xmm[0][3] == std::byte{0x55} &&
+            state.xmm[0][4] == std::byte{0x00},
+            "MOVD should transfer 32 bits and zero the upper XMM bits");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVQ from RAX to XMM1 should execute");
+    require(state.xmm[1][0] == std::byte{0x88} &&
+            state.xmm[1][7] == std::byte{0x11} &&
+            state.xmm[1][8] == std::byte{0x00},
+            "MOVQ should transfer 64 bits and zero the upper XMM bits");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[2] == 0x55667788ULL,
+            "MOVD from XMM0 to EDX should zero-extend its 32-bit result");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[1] == 0x1122334455667788ULL,
+            "MOVQ from XMM1 to RCX should transfer all 64 bits");
+
+    const std::array<std::byte, 4> memory_load{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x6e}, std::byte{0x08}
+    };
+    require(memory.write(0x31040, memory_load),
+            "memory-source MOVD should load");
+    require(memory.write_le<std::uint32_t>(0x31080, 0xaabbccddU),
+            "MOVD memory source data should load");
+    meridian::cpu::CpuState memory_state{};
+    memory_state.rip = 0x31040;
+    memory_state.gpr[0] = 0x31080;
+    memory_state.control_registers[4] = 1ULL << 9U;
+    require(interpreter.step(memory_state, memory) == StepResult::Executed,
+            "MOVD from memory should execute");
+    require(memory_state.xmm[1][0] == std::byte{0xdd} &&
+            memory_state.xmm[1][3] == std::byte{0xaa} &&
+            memory_state.xmm[1][4] == std::byte{0x00},
+            "MOVD memory load should zero-extend into XMM");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2939,6 +2995,7 @@ int main() {
         test_sse2_pshufd_and_shufps();
         test_unsupported_legacy_prefix_combinations();
         test_fxsave_fxrstor_state_round_trip();
+        test_movd_movq_xmm_transfers();
 
         test_cpu_state_reset();
         test_interpreter();
