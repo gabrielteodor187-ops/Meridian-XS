@@ -446,6 +446,96 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
+    // ADD/SUB/XOR/CMP between a register and a memory destination.
+    // This initial memory arithmetic subset supports [base], [base+disp8],
+    // and [base+disp32] addressing; SIB and RIP-relative arithmetic follow later.
+    if (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        if (mod == 3) return StepResult::UnsupportedInstruction;
+        const std::uint8_t rm_low = static_cast<std::uint8_t>(modrm & 7U);
+        if (rm_low == 4 || (mod == 0 && rm_low == 5))
+            return StepResult::UnsupportedInstruction;
+
+        const std::size_t source = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                   (rex_r ? 8U : 0U);
+        const std::size_t base = static_cast<std::size_t>(rm_low) +
+                                 (rex_b ? 8U : 0U);
+        std::int64_t displacement = 0;
+        if (mod == 1) {
+            std::uint8_t raw = 0;
+            if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
+            displacement = std::bit_cast<std::int8_t>(raw);
+        } else if (mod == 2) {
+            const auto raw = memory.read_le<std::uint32_t>(pc);
+            if (!raw) return StepResult::MemoryFault;
+            displacement = std::bit_cast<std::int32_t>(*raw);
+            pc += 4;
+        }
+        const std::uint64_t address = state.gpr[base] +
+                                      static_cast<std::uint64_t>(displacement);
+        if (rex_w) {
+            const auto loaded = memory.read_le<std::uint64_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            const std::uint64_t lhs = *loaded;
+            const std::uint64_t rhs = state.gpr[source];
+            std::uint64_t result = 0;
+            switch (opcode) {
+            case 0x01:
+                result = lhs + rhs;
+                update_add_flags(state, lhs, rhs, result);
+                break;
+            case 0x29:
+                result = lhs - rhs;
+                update_sub_flags(state, lhs, rhs, result);
+                break;
+            case 0x31:
+                result = lhs ^ rhs;
+                update_logic_flags(state, result);
+                break;
+            case 0x39:
+                result = lhs - rhs;
+                update_sub_flags(state, lhs, rhs, result);
+                break;
+            default:
+                return StepResult::UnsupportedInstruction;
+            }
+            if (opcode != 0x39 && !memory.write_le<std::uint64_t>(address, result))
+                return StepResult::MemoryFault;
+        } else {
+            const auto loaded = memory.read_le<std::uint32_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            const std::uint32_t lhs = *loaded;
+            const std::uint32_t rhs = static_cast<std::uint32_t>(state.gpr[source]);
+            std::uint32_t result = 0;
+            switch (opcode) {
+            case 0x01:
+                result = lhs + rhs;
+                update_add_flags32(state, lhs, rhs, result);
+                break;
+            case 0x29:
+                result = lhs - rhs;
+                update_sub_flags32(state, lhs, rhs, result);
+                break;
+            case 0x31:
+                result = lhs ^ rhs;
+                update_logic_flags32(state, result);
+                break;
+            case 0x39:
+                result = lhs - rhs;
+                update_sub_flags32(state, lhs, rhs, result);
+                break;
+            default:
+                return StepResult::UnsupportedInstruction;
+            }
+            if (opcode != 0x39 && !memory.write_le<std::uint32_t>(address, result))
+                return StepResult::MemoryFault;
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // Register-only 32-bit and 64-bit ADD, SUB, XOR, and CMP.
     // In 64-bit mode, default operand size is 32 bits unless REX.W is set.
     if (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {

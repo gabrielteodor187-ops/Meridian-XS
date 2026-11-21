@@ -622,6 +622,53 @@ void test_test_instruction() {
             "TEST program should reach HLT");
 }
 
+void test_memory_arithmetic() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0xf000, 0x100};
+    const std::array<std::byte, 17> program{
+        // ADD dword [RDI+4], ECX; XOR qword [RDI+8], R8; CMP dword [RDI+4], EDX.
+        std::byte{0x01}, std::byte{0x4f}, std::byte{0x04},
+        std::byte{0x4c}, std::byte{0x31}, std::byte{0x47}, std::byte{0x08},
+        std::byte{0x39}, std::byte{0x57}, std::byte{0x04},
+        std::byte{0x29}, std::byte{0x4f}, std::byte{0x04},
+        std::byte{0xf4}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}
+    };
+    require(memory.write(0xf000, program), "memory arithmetic program should load");
+    require(memory.write_le<std::uint32_t>(0xf084, 10U), "initial dword should be written");
+    require(memory.write_le<std::uint64_t>(0xf088, 0xff00ff00ff00ff00ULL),
+            "initial qword should be written");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xf000;
+    state.gpr[7] = 0xf080;
+    state.gpr[1] = 5;
+    state.gpr[2] = 15;
+    state.gpr[8] = 0x0f0f0f0f0f0f0f0fULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit memory ADD should execute");
+    require(memory.read_le<std::uint32_t>(0xf084).value_or(0) == 15U,
+            "32-bit memory ADD should store its result");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit memory XOR with R8 should execute");
+    require(memory.read_le<std::uint64_t>(0xf088).value_or(0) ==
+                (0xff00ff00ff00ff00ULL ^ 0x0f0f0f0f0f0f0f0fULL),
+            "64-bit memory XOR should update the addressed qword");
+    const auto before_cmp = memory.read_le<std::uint32_t>(0xf084).value_or(0);
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "memory CMP should execute");
+    require(memory.read_le<std::uint32_t>(0xf084).value_or(0) == before_cmp,
+            "memory CMP must not modify its operand");
+    require((state.rflags & (1ULL << 6U)) == 0,
+            "CMP 15 against 15 should set ZF");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit memory SUB should execute");
+    require(memory.read_le<std::uint32_t>(0xf084).value_or(0) == 0U,
+            "32-bit memory SUB should store its result");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "memory arithmetic program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -654,6 +701,7 @@ int main() {
         test_32bit_register_mov();
         test_32bit_memory_mov();
         test_test_instruction();
+        test_memory_arithmetic();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
