@@ -26,6 +26,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
 - Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
 - Register and memory destination 32-bit/64-bit OR and AND operations, with logical flag updates.
+- Register-direct Group-1 immediate arithmetic using both imm32 and sign-extended imm8 encodings.
 - 32-bit and 64-bit memory-destination ADD, SUB, XOR, and CMP using base, disp8, disp32, SIB-scaled index, no-base SIB, and RIP-relative addressing.
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - CTest-based tests for memory, CPU state, and supported instructions.
@@ -133,3 +134,8 @@ Added the x86-64 OR r/m, r and AND r/m, r instruction forms for 32-bit and 64-bi
 ### v0.34.1 — OR/AND register-form correction
 
 Completed the register-direct execution branches for the OR and AND opcodes and corrected the memory-OR regression test's expected bitwise result. The v0.34.0 implementation already included the memory-destination paths; this patch makes the documented register and memory coverage consistent.
+
+
+### v0.35.0 — Sign-extended imm8 arithmetic
+
+Added register-direct Group-1 opcode 0x83 for ADD, OR, AND, SUB, XOR, and CMP. The signed 8-bit immediate is extended to the active operand width, including 64-bit operations, and existing arithmetic/logical flag helpers are reused. Tests cover negative imm8 values, 32-bit zero-extension, 64-bit sign-extension, and REX.B extended-register selection. Memory-destination forms of opcode 0x83 remain unsupported.

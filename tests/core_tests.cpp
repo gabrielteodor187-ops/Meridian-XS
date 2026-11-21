@@ -1444,6 +1444,41 @@ void test_register_and_memory_or_and() {
             "register/memory OR/AND program should reach HLT");
 }
 
+
+void test_sign_extended_imm8_group1() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x1e000, 32};
+    const std::array<std::byte, 12> program{
+        // ADD EAX, -1; AND RAX, -128; OR R9, 0x7f; HLT.
+        std::byte{0x83}, std::byte{0xc0}, std::byte{0xff},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xe0}, std::byte{0x80},
+        std::byte{0x49}, std::byte{0x83}, std::byte{0xc9}, std::byte{0x7f},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x1e000, program), "sign-extended imm8 program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x1e000;
+    state.gpr[0] = 2;
+    state.gpr[9] = 0x100;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit ADD with sign-extended imm8 should execute");
+    require(state.gpr[0] == 1,
+            "32-bit imm8 0xff should be interpreted as negative one");
+    state.gpr[0] = 0x123456789abcdef0ULL;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit AND with sign-extended imm8 should execute");
+    require(state.gpr[0] == 0x123456789abcde80ULL,
+            "64-bit imm8 0x80 should sign-extend to negative 128");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "extended-register OR with imm8 should execute");
+    require(state.gpr[9] == 0x17f,
+            "REX.B should select R9 for immediate OR");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "sign-extended imm8 program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1478,6 +1513,7 @@ int main() {
         test_movzx_virtual_read_permissions();
         test_immediate_and_or_registers();
         test_register_and_memory_or_and();
+        test_sign_extended_imm8_group1();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

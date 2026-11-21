@@ -304,7 +304,7 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
     // Group-1 32-bit immediate arithmetic: ADD, SUB, XOR, and CMP.
     // Results written to a 32-bit register zero-extend into the full GPR.
-    if (!rex_w && opcode == 0x81) {
+    if (!rex_w && (opcode == 0x81 || opcode == 0x83)) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
@@ -316,11 +316,19 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
                                         (rex_b ? 8U : 0U);
-        const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
-        if (!raw_immediate) return StepResult::MemoryFault;
-        pc += 4;
+        std::uint32_t rhs = 0;
+        if (opcode == 0x83) {
+            std::uint8_t raw_immediate = 0;
+            if (!fetch8(memory, pc, raw_immediate)) return StepResult::MemoryFault;
+            rhs = static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(std::bit_cast<std::int8_t>(raw_immediate)));
+        } else {
+            const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
+            if (!raw_immediate) return StepResult::MemoryFault;
+            rhs = *raw_immediate;
+            pc += 4;
+        }
         const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination]);
-        const std::uint32_t rhs = *raw_immediate;
         std::uint32_t result = 0;
 
         switch (operation) {
@@ -363,7 +371,7 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
     // Group-1 64-bit immediate arithmetic: ADD, SUB, XOR, and CMP.
     // The imm32 operand is sign-extended as required by x86-64.
-    if (rex_w && opcode == 0x81) {
+    if (rex_w && (opcode == 0x81 || opcode == 0x83)) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
@@ -375,13 +383,19 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
                                         (rex_b ? 8U : 0U);
-        const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
-        if (!raw_immediate) return StepResult::MemoryFault;
-        pc += 4;
-        const auto immediate = std::bit_cast<std::int32_t>(*raw_immediate);
+        std::int64_t immediate = 0;
+        if (opcode == 0x83) {
+            std::uint8_t raw_immediate = 0;
+            if (!fetch8(memory, pc, raw_immediate)) return StepResult::MemoryFault;
+            immediate = std::bit_cast<std::int8_t>(raw_immediate);
+        } else {
+            const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
+            if (!raw_immediate) return StepResult::MemoryFault;
+            immediate = std::bit_cast<std::int32_t>(*raw_immediate);
+            pc += 4;
+        }
         const std::uint64_t lhs = state.gpr[destination];
-        const std::uint64_t rhs = static_cast<std::uint64_t>(
-            static_cast<std::int64_t>(immediate));
+        const std::uint64_t rhs = static_cast<std::uint64_t>(immediate);
         std::uint64_t result = 0;
 
         switch (operation) {
