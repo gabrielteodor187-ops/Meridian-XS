@@ -3887,6 +3887,53 @@ void test_avx_vperm2f128_vperm2i128() {
             "VPERM2I128 should select the same 128-bit source halves");
 }
 
+
+void test_avx2_packed_compare_and_vpmovmskb() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32700, 0x100};
+    const std::array<std::byte, 5> vpcmpeqd{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0x76}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 5> vpmovmskb{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x05},
+        std::byte{0xd7}, std::byte{0xd8}
+    };
+    require(memory.write(0x32700, vpcmpeqd), "VPCMPEQD instruction should load");
+    require(memory.write(0x32710, vpmovmskb), "VPMOVMSKB instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32700;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    const std::array<std::uint32_t, 8> left{1, 2, 3, 4, 5, 6, 7, 8};
+    const std::array<std::uint32_t, 8> right{1, 0, 3, 0, 5, 0, 7, 0};
+    for (std::size_t lane = 0; lane < 8; ++lane) {
+        auto& a = lane < 4 ? state.xmm[1] : state.ymm_high[1];
+        auto& b = lane < 4 ? state.xmm[2] : state.ymm_high[2];
+        const std::size_t offset = (lane % 4U) * 4U;
+        for (std::size_t byte = 0; byte < 4; ++byte) {
+            a[offset + byte] = static_cast<std::byte>((left[lane] >> (byte * 8U)) & 0xffU);
+            b[offset + byte] = static_cast<std::byte>((right[lane] >> (byte * 8U)) & 0xffU);
+        }
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPCMPEQD.256 should execute");
+    for (std::size_t lane = 0; lane < 8; ++lane) {
+        const auto& value = lane < 4 ? state.xmm[0] : state.ymm_high[0];
+        const std::size_t offset = (lane % 4U) * 4U;
+        const std::byte expected = (lane % 2U) == 0
+            ? std::byte{0xff} : std::byte{0x00};
+        require(value[offset] == expected,
+                "VPCMPEQD should create all-ones masks for equal dword lanes");
+    }
+    state.rip = 0x32710;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPMOVMSKB should execute");
+    require(state.gpr[3] == 0x0f0f0f0fU,
+            "VPMOVMSKB should collect 32 byte sign bits from a YMM register");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3971,6 +4018,7 @@ int main() {
         test_avx2_vpshufd_vshufps();
         test_avx2_vpshufb_128bit_lane_behavior();
         test_avx_vperm2f128_vperm2i128();
+        test_avx2_packed_compare_and_vpmovmskb();
 
         test_cpu_state_reset();
         test_interpreter();
