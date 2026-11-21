@@ -189,6 +189,28 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        // SETcc r/m8. This first implementation supports register destinations.
+        if (second >= 0x90 && second <= 0x9f) {
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if ((modrm & 0xc0U) != 0xc0U)
+                return StepResult::UnsupportedInstruction;
+            const std::uint8_t rm_low = static_cast<std::uint8_t>(modrm & 7U);
+            const std::uint8_t value = condition_true(
+                static_cast<std::uint8_t>(second & 0x0fU), state.rflags) ? 1U : 0U;
+            if (!rex_present && rm_low >= 4) {
+                const std::size_t reg = static_cast<std::size_t>(rm_low - 4U);
+                state.gpr[reg] = (state.gpr[reg] & ~(0xffULL << 8U)) |
+                                 (static_cast<std::uint64_t>(value) << 8U);
+            } else {
+                const std::size_t reg = static_cast<std::size_t>(rm_low) +
+                                        (rex_b ? 8U : 0U);
+                state.gpr[reg] = (state.gpr[reg] & ~0xffULL) | value;
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         if (second == 0xb6 || second == 0xb7 ||
             second == 0xbe || second == 0xbf) {
             std::uint8_t modrm = 0;

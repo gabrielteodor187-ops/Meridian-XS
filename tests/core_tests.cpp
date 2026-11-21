@@ -1545,6 +1545,44 @@ void test_near_unsigned_condition_branch() {
             "near JB target should reach HLT");
 }
 
+
+void test_setcc_register_forms() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x21000, 32};
+    const std::array<std::byte, 11> program{
+        // SETZ AL; SETNZ AH; SETB R9B; HLT.
+        std::byte{0x0f}, std::byte{0x94}, std::byte{0xc0},
+        std::byte{0x0f}, std::byte{0x95}, std::byte{0xc4},
+        std::byte{0x41}, std::byte{0x0f}, std::byte{0x92}, std::byte{0xc1},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x21000, program), "SETcc program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x21000;
+    state.rflags = 0x2 | (1ULL << 6U) | (1ULL << 0U);
+    state.gpr[0] = 0x1122334455665500ULL;
+    state.gpr[9] = 0xabcdef00ULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SETZ AL should execute");
+    require((state.gpr[0] & 0xffU) == 1,
+            "SETZ should write one to AL when ZF is set");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SETNZ AH should execute");
+    require(((state.gpr[0] >> 8U) & 0xffU) == 0,
+            "SETNZ should clear AH when ZF is set");
+    require((state.gpr[0] & ~0xffffULL) == 0x1122334455660000ULL,
+            "SETcc byte writes should preserve the rest of the destination register");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "REX.B SETB R9B should execute");
+    require((state.gpr[9] & 0xffU) == 1 &&
+            (state.gpr[9] & ~0xffULL) == 0xabcdef00ULL,
+            "REX.B SETcc should address an extended low-byte register");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "SETcc program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1582,6 +1620,7 @@ int main() {
         test_sign_extended_imm8_group1();
         test_all_short_condition_codes();
         test_near_unsigned_condition_branch();
+        test_setcc_register_forms();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
