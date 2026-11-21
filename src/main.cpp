@@ -7,7 +7,7 @@ void print_banner() {
     std::cout
         << "Meridian-XS\n"
         << "Xbox Series X|S research emulator project\n"
-        << "Version 0.92.0 (byte MOV register and memory support)\n\n";
+        << "Version 0.93.0 (byte TEST instruction support)\n\n";
 }
 
 void print_status() {
