@@ -2779,6 +2779,25 @@ void test_sse2_pshufd_and_shufps() {
 
 }
 
+
+void test_unsupported_legacy_prefix_combinations() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x2f000, 32};
+    const std::array<std::byte, 7> prefixed_jcc{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x84},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}
+    };
+    require(memory.write(0x2f000, prefixed_jcc),
+            "prefixed conditional branch test should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x2f000;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::UnsupportedInstruction,
+            "unsupported operand-size-prefixed near Jcc must not execute as rel32");
+    require(state.rip == 0x2f000,
+            "unsupported prefixed instruction should leave RIP unchanged");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2840,6 +2859,7 @@ int main() {
         test_sse2_packed_integer_arithmetic();
         test_sse2_packed_compare_and_movemask();
         test_sse2_pshufd_and_shufps();
+        test_unsupported_legacy_prefix_combinations();
 
         test_cpu_state_reset();
         test_interpreter();

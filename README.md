@@ -324,3 +324,8 @@ Added PSHUFD (dword shuffle with imm8 lane selection) and SHUFPS (two-source dwo
 ### v0.58.1 — Memory-source shuffle coverage
 
 Corrected the SIMD memory-source path to read operands for PSHUFD/SHUFPS. Added a RIP-relative PSHUFD test that verifies effective-address calculation includes the trailing immediate byte and that memory operands are actually loaded.
+
+
+### v0.58.2 — Strict unsupported-prefix handling
+
+Added a guard so legacy prefixes are not silently ignored by unrelated two-byte opcodes. A regression test verifies that an operand-size-prefixed near conditional branch is rejected rather than incorrectly executed as a 32-bit branch.

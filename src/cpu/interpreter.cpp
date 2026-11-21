@@ -498,6 +498,11 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             return StepResult::Executed;
         }
 
+        // Legacy prefixes not explicitly handled above are not silently ignored
+        // by unrelated two-byte instructions (for example 66 0F 84).
+        if (operand_size_override || prefix_f3 || prefix_f2)
+            return StepResult::UnsupportedInstruction;
+
         // CPUID: expose a conservative synthetic Meridian-XS profile.
         if (second == 0xa2) {
             const std::uint32_t leaf = static_cast<std::uint32_t>(state.gpr[0]);
