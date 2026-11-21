@@ -408,7 +408,7 @@ Added XGETBV and XSETBV for XCR0 index 0, including CR4.OSXSAVE checks, XSETBV p
 
 ### v0.68.0 — XSAVE/XRSTOR and YMM upper-half state
 
-Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. Initial AVX VEX.0F support: 128-/256-bit VADDPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. An initial AVX2 integer subset: VPADDQ/VPADDD, VPSUBQ/VPSUBD, VPAND/VPOR/VPXOR, VPSHUFD, VPSHUFB, and 256-bit YMM integer lanes; VSHUFPS is supported for AVX.
+Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. Initial AVX VEX.0F support: 128-/256-bit VADDPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. An initial AVX2 integer subset: VPADDQ/VPADDD, VPSUBQ/VPSUBD, VPAND/VPOR/VPXOR, VPSHUFD, VPSHUFB, VPERM2I128, and 256-bit YMM integer lanes; VSHUFPS and VPERM2F128 are supported for AVX.
 
 
 ### v0.68.1 — CPUID xstate feature tests
@@ -444,3 +444,8 @@ Added VEX VPSHUFD and VSHUFPS with imm8 controls. VPSHUFD applies its 4-dword sh
 ### v0.73.0 — AVX2 VPSHUFB
 
 Added VEX.0F38 VPSHUFB for 128-/256-bit vectors. Each 128-bit lane shuffles independently; control-byte bit 7 produces zero, and the low nibble selects the source byte within that lane. Tests cover reverse-byte selection, zeroing, and independent upper-lane behavior.
+
+
+### v0.74.0 — 128-bit lane permutation
+
+Added VPERM2F128 and VPERM2I128 from the VEX.0F3A map. The immediate selects either 128-bit half from each source for the destination's low/high halves, with the architectural zeroing controls supported. Tests cover cross-lane selection for both floating-point and integer forms.

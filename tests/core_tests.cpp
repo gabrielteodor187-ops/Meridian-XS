@@ -3848,6 +3848,45 @@ void test_avx2_vpshufb_128bit_lane_behavior() {
                 "VPSHUFB should shuffle the upper 128-bit lane independently");
 }
 
+
+void test_avx_vperm2f128_vperm2i128() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32600, 0x100};
+    const std::array<std::byte, 6> vperm2f128{
+        std::byte{0xc4}, std::byte{0xe3}, std::byte{0x74},
+        std::byte{0x06}, std::byte{0xc2}, std::byte{0x21}
+    };
+    const std::array<std::byte, 6> vperm2i128{
+        std::byte{0xc4}, std::byte{0xe3}, std::byte{0x75},
+        std::byte{0x46}, std::byte{0xc2}, std::byte{0x21}
+    };
+    require(memory.write(0x32600, vperm2f128), "VPERM2F128 instruction should load");
+    require(memory.write(0x32610, vperm2i128), "VPERM2I128 instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32600;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    for (std::size_t i = 0; i < 16; ++i) {
+        state.xmm[1][i] = static_cast<std::byte>(i + 1U);
+        state.ymm_high[1][i] = static_cast<std::byte>(i + 17U);
+        state.xmm[2][i] = static_cast<std::byte>(i + 33U);
+        state.ymm_high[2][i] = static_cast<std::byte>(i + 49U);
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPERM2F128 should execute");
+    require(state.xmm[0] == state.ymm_high[1] &&
+            state.ymm_high[0] == state.xmm[2],
+            "VPERM2F128 imm8 0x21 should select source1.high and source2.low");
+
+    state.rip = 0x32610;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPERM2I128 should execute");
+    require(state.xmm[0] == state.ymm_high[1] &&
+            state.ymm_high[0] == state.xmm[2],
+            "VPERM2I128 should select the same 128-bit source halves");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3931,6 +3970,7 @@ int main() {
         test_avx2_vmovdqa_vmovdqu_memory_forms();
         test_avx2_vpshufd_vshufps();
         test_avx2_vpshufb_128bit_lane_behavior();
+        test_avx_vperm2f128_vperm2i128();
 
         test_cpu_state_reset();
         test_interpreter();
