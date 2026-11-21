@@ -26,6 +26,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - 32-bit register and immediate ADD, SUB, XOR, and CMP with 32-bit flag behaviour and architectural zero-extension into 64-bit GPRs.
 - 32-bit register-to-register MOV (both operand directions), including REX.R/REX.B extended registers and zero-extension into 64-bit GPRs.
 - Register-direct and memory-destination 16-bit ADD, OR, AND, SUB, XOR, and CMP with operand-size override and correct 16-bit arithmetic flags; register destinations preserve their upper 48 bits.
+- Register and memory-destination ADC/SBB operations at 16-, 32-, and 64-bit operand sizes, consuming and updating the carry flag with width-correct arithmetic flags.
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
 - Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
 - Register and memory destination 32-bit/64-bit OR and AND operations, with logical flag updates.
@@ -70,6 +71,11 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 4. Research graphics command translation and console-specific interfaces using public documentation.
 
 All implementation is intended to be original code based on public information. No proprietary SDKs, firmware, keys, or game data are included.
+
+
+### v0.88.0 — ADC/SBB carry arithmetic
+
+Added ADC and SBB for register-direct and memory-destination operands at 16-, 32-, and 64-bit widths. The operations consume the incoming carry/borrow flag and calculate carry, overflow, auxiliary carry, sign, zero, and parity status. Added regression tests for register and memory forms at all three widths.
 
 
 ### v0.87.0 — 16-bit register arithmetic dispatch fix
