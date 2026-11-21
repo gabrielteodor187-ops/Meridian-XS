@@ -464,3 +464,8 @@ Extended packed integer arithmetic to byte and word lanes with VPADDB/VPADDW and
 ### v0.77.0 — AVX2 saturating arithmetic and packed min/max
 
 Added signed/unsigned saturating byte/word addition and subtraction, unsigned byte/word rounded averages, and unsigned-byte/signed-word min/max operations. Tests cover signed-byte saturation, unsigned-byte saturation, and signed-word subtraction saturation. The AVX2 implementation remains incomplete.
+
+
+### v0.77.1 — Signed saturating-add opcode direction
+
+Corrected the signed saturating byte/word add selector so VPADDSB and VPADDSW add their operands rather than taking the subtraction path. The regression test exposed the issue; no other instruction behavior changed.

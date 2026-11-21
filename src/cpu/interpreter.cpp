@@ -618,7 +618,8 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                  opcode == 0xe3) ? 2U :
                 (opcode == 0xd4 || opcode == 0xfb) ? 8U : 4U;
             const bool add = opcode == 0xfc || opcode == 0xfd ||
-                             opcode == 0xfe || opcode == 0xd4;
+                             opcode == 0xfe || opcode == 0xd4 ||
+                             opcode == 0xec || opcode == 0xed;
             const bool signed_saturating =
                 opcode == 0xec || opcode == 0xed || opcode == 0xe8 || opcode == 0xe9;
             const bool unsigned_saturating =
