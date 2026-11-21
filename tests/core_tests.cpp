@@ -827,6 +827,33 @@ void test_virtual_address_protection_changes() {
             "execute should fail after execute permission is removed");
 }
 
+
+void test_virtual_address_typed_access() {
+    using meridian::core::PagePermissions;
+    using meridian::core::VirtualAddressSpace;
+    meridian::core::GuestMemory backing{0x50000, VirtualAddressSpace::page_size};
+    VirtualAddressSpace space{};
+    require(space.map(0x700000, backing, 0x50000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, true, true}),
+            "typed-access page should map");
+    require(space.write_le<std::uint64_t>(0x700ff8, 0x1122334455667788ULL),
+            "typed write should support a value crossing a page boundary only when mapped");
+    const auto value = space.read_le<std::uint64_t>(0x700ff8);
+    require(value && *value == 0x1122334455667788ULL,
+            "typed read should preserve little-endian values");
+    const auto instruction = space.fetch_le<std::uint64_t>(0x700ff8);
+    require(instruction && *instruction == 0x1122334455667788ULL,
+            "typed instruction fetch should honor execute permission");
+
+    require(space.protect(0x700000, VirtualAddressSpace::page_size,
+                          PagePermissions{true, true, false}),
+            "typed-access page should become non-executable");
+    require(!space.fetch_le<std::uint64_t>(0x700ff8),
+            "typed fetch must reject non-executable pages");
+    require(space.read_le<std::uint64_t>(0x700ff8).has_value(),
+            "typed data read should remain available without execute permission");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -845,6 +872,7 @@ int main() {
         test_guest_memory();
         test_virtual_address_space();
         test_virtual_address_protection_changes();
+        test_virtual_address_typed_access();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

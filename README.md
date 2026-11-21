@@ -26,7 +26,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
 - Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
 - 32-bit and 64-bit memory-destination ADD, SUB, XOR, and CMP using base, disp8, disp32, SIB-scaled index, no-base SIB, and RIP-relative addressing.
-- Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, and atomic range protection changes.
+- Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -46,8 +46,8 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 
 ## Development direction
 
-1. Expand x86-64 decoding, including broader memory operands, arithmetic, and control flow.
-2. Integrate the page-granular virtual address-space primitive with CPU memory accesses and page-table semantics.
+1. Integrate the page-granular virtual address-space primitive with CPU memory accesses and page-table semantics.
+2. Expand x86-64 decoding, including broader memory operands, arithmetic, and control flow.
 3. Add interrupts, scheduling, and system-call/platform abstractions.
 4. Research graphics command translation and console-specific interfaces using public documentation.
 

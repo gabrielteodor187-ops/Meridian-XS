@@ -2,9 +2,12 @@
 
 #include "meridian/core/guest_memory.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <optional>
+#include <type_traits>
 #include <unordered_map>
 
 namespace meridian::core {
@@ -40,6 +43,38 @@ public:
                              std::span<const std::byte> data) noexcept;
     [[nodiscard]] bool fetch(std::uint64_t virtual_address,
                              std::span<std::byte> out) const noexcept;
+
+
+    template <typename T>
+        requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
+    [[nodiscard]] std::optional<T> read_le(std::uint64_t virtual_address) const noexcept {
+        std::array<std::byte, sizeof(T)> bytes{};
+        if (!read(virtual_address, bytes)) return std::nullopt;
+        T value = 0;
+        for (std::size_t i = 0; i < sizeof(T); ++i)
+            value |= static_cast<T>(std::to_integer<unsigned char>(bytes[i])) << (i * 8);
+        return value;
+    }
+
+    template <typename T>
+        requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
+    [[nodiscard]] std::optional<T> fetch_le(std::uint64_t virtual_address) const noexcept {
+        std::array<std::byte, sizeof(T)> bytes{};
+        if (!fetch(virtual_address, bytes)) return std::nullopt;
+        T value = 0;
+        for (std::size_t i = 0; i < sizeof(T); ++i)
+            value |= static_cast<T>(std::to_integer<unsigned char>(bytes[i])) << (i * 8);
+        return value;
+    }
+
+    template <typename T>
+        requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
+    [[nodiscard]] bool write_le(std::uint64_t virtual_address, T value) noexcept {
+        std::array<std::byte, sizeof(T)> bytes{};
+        for (std::size_t i = 0; i < sizeof(T); ++i)
+            bytes[i] = static_cast<std::byte>((value >> (i * 8)) & 0xffU);
+        return write(virtual_address, bytes);
+    }
 
     [[nodiscard]] bool is_mapped(std::uint64_t virtual_address,
                                  std::size_t length = 1) const noexcept;
