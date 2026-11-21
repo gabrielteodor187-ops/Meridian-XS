@@ -1,10 +1,12 @@
 #include "meridian/core/guest_memory.hpp"
 #include "meridian/core/virtual_address_space.hpp"
 #include "meridian/core/x64_page_table_walker.hpp"
+#include "meridian/core/pe_image_loader.hpp"
 #include "meridian/cpu/cpu_state.hpp"
 #include "meridian/cpu/interpreter.hpp"
 
 #include <array>
+#include <vector>
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
@@ -2161,6 +2163,98 @@ void test_cpuid_rdtsc_and_rdtscp() {
             "CR4.TSD should restrict RDTSC outside CPL0");
 }
 
+
+void test_pe32_plus_image_loader() {
+    using meridian::core::PeImageLoader;
+    std::vector<std::byte> file(0x600);
+    const auto put16 = [&](std::size_t offset, std::uint16_t value) {
+        file[offset] = static_cast<std::byte>(value & 0xffU);
+        file[offset + 1] = static_cast<std::byte>((value >> 8U) & 0xffU);
+    };
+    const auto put32 = [&](std::size_t offset, std::uint32_t value) {
+        for (std::size_t i = 0; i < 4; ++i)
+            file[offset + i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    };
+    const auto put64 = [&](std::size_t offset, std::uint64_t value) {
+        for (std::size_t i = 0; i < 8; ++i)
+            file[offset + i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    };
+
+    constexpr std::size_t pe = 0x80;
+    constexpr std::size_t opt = pe + 24;
+    constexpr std::size_t sections = opt + 0xf0;
+    constexpr std::uint64_t preferred_base = 0x140000000ULL;
+    put16(0, 0x5a4d);
+    put32(0x3c, pe);
+    put32(pe, 0x00004550);
+    put16(pe + 4, 0x8664);
+    put16(pe + 6, 2);
+    put16(pe + 20, 0xf0);
+    put16(opt, 0x20b);
+    put32(opt + 16, 0x1000);
+    put64(opt + 24, preferred_base);
+    put32(opt + 32, 0x1000);
+    put32(opt + 36, 0x200);
+    put32(opt + 56, 0x3000);
+    put32(opt + 60, 0x200);
+    put32(opt + 108, 16);
+    put32(opt + 112 + 5 * 8, 0x2000);
+    put32(opt + 112 + 5 * 8 + 4, 12);
+
+    const auto write_section = [&](std::size_t offset, const char* name,
+                                   std::uint32_t virtual_size,
+                                   std::uint32_t virtual_address,
+                                   std::uint32_t raw_size,
+                                   std::uint32_t raw_offset,
+                                   std::uint32_t characteristics) {
+        for (std::size_t i = 0; i < 8 && name[i] != '\0'; ++i)
+            file[offset + i] = static_cast<std::byte>(name[i]);
+        put32(offset + 8, virtual_size);
+        put32(offset + 12, virtual_address);
+        put32(offset + 16, raw_size);
+        put32(offset + 20, raw_offset);
+        put32(offset + 36, characteristics);
+    };
+    write_section(sections, ".text", 0x200, 0x1000, 0x200, 0x200, 0x60000020);
+    write_section(sections + 40, ".reloc", 0x200, 0x2000, 0x200, 0x400, 0x42000040);
+
+    file[0x200] = std::byte{0xf4}; // HLT at the image entry point.
+    put64(0x210, preferred_base + 0x1234);
+    put32(0x400, 0x1000); // Relocation page RVA.
+    put32(0x404, 12);     // Block size.
+    put16(0x408, 0xa010); // DIR64 at RVA 0x1010.
+    put16(0x40a, 0x0000); // ABSOLUTE padding entry.
+
+    const auto loaded = PeImageLoader::load(file, 0x150000000ULL);
+    require(loaded.has_value(), "valid PE32+ image should load");
+    require(loaded->image_base == 0x150000000ULL &&
+            loaded->entry_point == 0x150001000ULL,
+            "PE loader should apply the requested image base to the entry point");
+    require(loaded->sections.size() == 2 &&
+            loaded->sections[0].name == ".text" &&
+            loaded->sections[1].name == ".reloc",
+            "PE loader should preserve section metadata");
+    std::uint64_t relocated = 0;
+    for (std::size_t i = 0; i < 8; ++i)
+        relocated |= static_cast<std::uint64_t>(
+            std::to_integer<unsigned char>(loaded->image[0x1010 + i])) << (i * 8U);
+    require(relocated == 0x150001234ULL,
+            "PE loader should apply DIR64 base relocations");
+    require(loaded->image[0x1000] == std::byte{0xf4},
+            "PE loader should map section contents at their RVAs");
+
+    const auto preferred = PeImageLoader::load(file);
+    require(preferred.has_value() && preferred->image_base == preferred_base,
+            "PE loader should use the preferred base when no override is requested");
+    require(!PeImageLoader::load(std::span<const std::byte>{file}.first(32)),
+            "truncated DOS headers should be rejected");
+
+    file[pe + 4] = std::byte{0x4c};
+    file[pe + 5] = std::byte{0x01}; // Unsupported non-AMD64 machine.
+    require(!PeImageLoader::load(file),
+            "non-AMD64 PE images should be rejected");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2214,6 +2308,7 @@ int main() {
         test_rdmsr_wrmsr_and_privilege();
         test_syscall_sysret_and_swapgs();
         test_cpuid_rdtsc_and_rdtscp();
+        test_pe32_plus_image_loader();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

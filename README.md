@@ -34,7 +34,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
 - Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms, INVLPG, SWAPGS, a limited RDMSR/WRMSR bank, basic SYSCALL/SYSRET transitions, conservative CPUID leaves, RDTSC, and RDTSCP.
-- CTest-based tests for memory, CPU state, and supported instructions.
+- Minimal standard PE32+ image mapping with AMD64 validation, section mapping, and DIR64 base relocations (not Xbox XEX package support).
+- CTest-based tests for memory, CPU state, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
 ## Build and test
@@ -234,3 +235,8 @@ Added CPUID leaves 0, 1, 0x80000000, and 0x80000001 with a deliberately conserva
 ### v0.47.1 — CPUID output-register correction
 
 Corrected CPUID result placement to the architectural EAX/EBX/ECX/EDX register mapping (RAX/RBX/RCX/RDX). Updated vendor-string and feature-bit assertions accordingly.
+
+
+### v0.48.0 — Minimal PE32+ image loader
+
+Added a standard AMD64 PE32+ image mapper. It validates DOS/PE headers, optional-header format, section table ranges, image bounds, and section overlap; maps headers and sections into a zero-initialized image; and applies DIR64 base relocations when loading away from the preferred image base. Tests use a synthetic PE image to verify section mapping, entry-point rebasing, relocation application, and malformed/non-AMD64 rejection. This is not an Xbox XEX/XVC package loader and does not resolve imports, process TLS callbacks, establish page tables, or launch an image.
