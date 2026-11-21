@@ -402,19 +402,72 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
 
 
-    // MOVSXD r64, r/m32. This subset currently supports register operands.
-    if (rex_w && opcode == 0x63) {
+    // MOVSXD r32/r64, r/m32.
+    if (opcode == 0x63) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
-        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
         const std::size_t destination = static_cast<std::size_t>((modrm >> 3U) & 7U) +
                                         (rex_r ? 8U : 0U);
-        const std::size_t source = static_cast<std::size_t>(modrm & 7U) +
-                                   (rex_b ? 8U : 0U);
-        const auto value = static_cast<std::int32_t>(
-            static_cast<std::uint32_t>(state.gpr[source]));
-        state.gpr[destination] = static_cast<std::uint64_t>(
-            static_cast<std::int64_t>(value));
+        std::uint32_t raw_value = 0;
+        if (mod == 3) {
+            const std::size_t source = static_cast<std::size_t>(modrm & 7U) +
+                                       (rex_b ? 8U : 0U);
+            raw_value = static_cast<std::uint32_t>(state.gpr[source]);
+        } else {
+            const std::uint8_t rm_low = static_cast<std::uint8_t>(modrm & 7U);
+            std::uint64_t base_value = 0;
+            std::uint64_t index_value = 0;
+            unsigned scale_shift = 0;
+            bool has_base = true;
+            bool rip_relative = false;
+            if (rm_low == 4) {
+                std::uint8_t sib = 0;
+                if (!fetch8(memory, pc, sib)) return StepResult::MemoryFault;
+                scale_shift = static_cast<unsigned>(sib >> 6U);
+                const std::uint8_t index_low = static_cast<std::uint8_t>((sib >> 3U) & 7U);
+                const std::uint8_t base_low = static_cast<std::uint8_t>(sib & 7U);
+                if (index_low != 4 || rex_x) {
+                    const std::size_t index_reg = static_cast<std::size_t>(index_low) +
+                                                  (rex_x ? 8U : 0U);
+                    index_value = state.gpr[index_reg];
+                }
+                if (mod == 0 && base_low == 5) {
+                    has_base = false;
+                } else {
+                    const std::size_t base_reg = static_cast<std::size_t>(base_low) +
+                                                 (rex_b ? 8U : 0U);
+                    base_value = state.gpr[base_reg];
+                }
+            } else if (mod == 0 && rm_low == 5) {
+                rip_relative = true;
+            } else {
+                const std::size_t base_reg = static_cast<std::size_t>(rm_low) +
+                                             (rex_b ? 8U : 0U);
+                base_value = state.gpr[base_reg];
+            }
+            std::int64_t displacement = 0;
+            if (mod == 1) {
+                std::uint8_t raw = 0;
+                if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
+                displacement = std::bit_cast<std::int8_t>(raw);
+            } else if (mod == 2 || (mod == 0 && (!has_base || rip_relative))) {
+                const auto raw = memory.template fetch_le<std::uint32_t>(pc);
+                if (!raw) return StepResult::MemoryFault;
+                displacement = std::bit_cast<std::int32_t>(*raw);
+                pc += 4;
+            }
+            const std::uint64_t address =
+                (rip_relative ? pc : (has_base ? base_value : 0)) +
+                (index_value << scale_shift) + static_cast<std::uint64_t>(displacement);
+            const auto loaded = memory.template read_le<std::uint32_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            raw_value = *loaded;
+        }
+        const auto value = std::bit_cast<std::int32_t>(raw_value);
+        state.gpr[destination] = rex_w
+            ? static_cast<std::uint64_t>(static_cast<std::int64_t>(value))
+            : static_cast<std::uint32_t>(value);
         state.rip = pc;
         return StepResult::Executed;
     }

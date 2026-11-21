@@ -1283,6 +1283,39 @@ void test_movsx_movzx_memory_operands() {
             "memory MOVSX/MOVZX program should reach HLT");
 }
 
+
+void test_movsxd_memory_operands() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x1b000, 0x200};
+    const std::array<std::byte, 10> program{
+        // MOVSXD RAX, dword [RDI+4]; MOVSXD R9, dword [RDI+RCX*4+8]; HLT.
+        std::byte{0x48}, std::byte{0x63}, std::byte{0x47}, std::byte{0x04},
+        std::byte{0x4c}, std::byte{0x63}, std::byte{0x4c}, std::byte{0x8f},
+        std::byte{0x08}, std::byte{0xf4}
+    };
+    require(memory.write(0x1b000, program), "memory MOVSXD program should load");
+    require(memory.write_le<std::uint32_t>(0x1b104, 0x80000001U),
+            "negative MOVSXD source should initialize");
+    require(memory.write_le<std::uint32_t>(0x1b10c, 0x7fffffffU),
+            "positive MOVSXD source should initialize");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x1b000;
+    state.gpr[7] = 0x1b100;
+    state.gpr[1] = 1;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSXD from base-plus-displacement memory should execute");
+    require(state.gpr[0] == 0xffffffff80000001ULL,
+            "MOVSXD memory source should sign-extend a negative dword");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SIB-addressed MOVSXD memory source should execute");
+    require(state.gpr[9] == 0x7fffffffULL,
+            "MOVSXD memory source should support SIB and extended destination registers");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "memory MOVSXD program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1313,6 +1346,7 @@ int main() {
         test_c7_memory_write_permissions_in_virtual_space();
         test_c7_cross_page_permission_fault_is_atomic();
         test_movsx_movzx_memory_operands();
+        test_movsxd_memory_operands();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

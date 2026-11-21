@@ -107,3 +107,8 @@ Added a regression test for a 64-bit C7 store that crosses from a writable virtu
 ### v0.30.0 — Memory-source MOVSX/MOVZX
 
 Extended MOVSX and MOVZX byte/word forms to memory operands using base/displacement, SIB scaled-index, and RIP-relative addressing. Loads use the memory read path, so virtual-page read permissions are enforced. Register forms, including legacy high-byte and REX byte registers, remain supported. Full decoder and address-size coverage are still incomplete.
+
+
+### v0.31.0 — Memory-source MOVSXD
+
+Extended MOVSXD to read 32-bit operands from guest memory using base/displacement, SIB scaled-index, and RIP-relative forms. The result is sign-extended to 64 bits with REX.W, or sign-extended to 32 bits and then zero-extended into the GPR without REX.W. Memory reads honor the active memory backend's access checks.
