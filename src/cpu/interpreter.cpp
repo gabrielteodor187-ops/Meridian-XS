@@ -125,10 +125,12 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
 
     bool rex_w = false;
     bool rex_r = false;
+    bool rex_x = false;
     bool rex_b = false;
     if (opcode >= 0x40 && opcode <= 0x4f) {
         rex_w = (opcode & 0x08U) != 0;
         rex_r = (opcode & 0x04U) != 0;
+        rex_x = (opcode & 0x02U) != 0;
         rex_b = (opcode & 0x01U) != 0;
         if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
     }
@@ -241,22 +243,49 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         }
 
         const std::uint8_t rm_low = static_cast<std::uint8_t>(modrm & 7U);
-        if (rm_low == 4 || (mod == 0 && rm_low == 5))
-            return StepResult::UnsupportedInstruction;
+        std::uint64_t base_value = 0;
+        std::uint64_t index_value = 0;
+        unsigned scale_shift = 0;
+        bool has_base = true;
+
+        if (rm_low == 4) {
+            std::uint8_t sib = 0;
+            if (!fetch8(memory, pc, sib)) return StepResult::MemoryFault;
+            scale_shift = static_cast<unsigned>(sib >> 6U);
+            const std::uint8_t index_low = static_cast<std::uint8_t>((sib >> 3U) & 7U);
+            const std::uint8_t base_low = static_cast<std::uint8_t>(sib & 7U);
+            if (index_low != 4 || rex_x) {
+                const std::size_t index_reg = static_cast<std::size_t>(index_low) +
+                                              (rex_x ? 8U : 0U);
+                index_value = state.gpr[index_reg];
+            }
+            if (mod == 0 && base_low == 5) {
+                has_base = false;
+            } else {
+                const std::size_t base_reg = static_cast<std::size_t>(base_low) +
+                                             (rex_b ? 8U : 0U);
+                base_value = state.gpr[base_reg];
+            }
+        } else {
+            if (mod == 0 && rm_low == 5)
+                return StepResult::UnsupportedInstruction; // RIP-relative form
+            base_value = state.gpr[rm];
+        }
 
         std::int64_t displacement = 0;
         if (mod == 1) {
             std::uint8_t raw = 0;
             if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int8_t>(raw);
-        } else if (mod == 2) {
+        } else if (mod == 2 || (mod == 0 && !has_base)) {
             const auto raw = memory.read_le<std::uint32_t>(pc);
             if (!raw) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int32_t>(*raw);
             pc += 4;
         }
 
-        const std::uint64_t address = state.gpr[rm] +
+        const std::uint64_t address = (has_base ? base_value : 0) +
+                                      (index_value << scale_shift) +
                                       static_cast<std::uint64_t>(displacement);
         if (opcode == 0x8b) {
             const auto value = memory.read_le<std::uint64_t>(address);

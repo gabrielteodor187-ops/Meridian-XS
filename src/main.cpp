@@ -7,7 +7,7 @@ void print_banner() {
     std::cout
         << "Meridian-XS\n"
         << "Xbox Series X|S research emulator project\n"
-        << "Version 0.8.0 (immediate arithmetic execution)\n\n";
+        << "Version 0.9.0 (SIB memory addressing)\n\n";
 }
 
 void print_status() {
@@ -23,9 +23,10 @@ void print_status() {
         << "  - near relative CALL and RET\n"
         << "  - 64-bit MOV loads/stores using base + disp8/disp32\n"
         << "  - 64-bit ADD/SUB/XOR/CMP with sign-extended imm32\n"
+        << "  - SIB memory addressing with scaled and extended index registers\n"
         << "  - core tests registered with CTest\n\n"
         << "Still missing:\n"
-        << "  - broad x86-64 instruction and memory-addressing support (SIB/RIP-relative still missing)\n"
+        << "  - broad x86-64 instruction and memory-addressing support (RIP-relative still missing)\n"
         << "  - virtual memory, interrupts, and scheduling\n"
         << "  - Xbox kernel and system services\n"
         << "  - GPU emulation, storage, and boot support\n";

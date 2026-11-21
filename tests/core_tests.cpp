@@ -350,6 +350,47 @@ void test_immediate_arithmetic() {
             "immediate ADD should set signed overflow");
 }
 
+void test_sib_memory_addressing() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x8000, 0x200};
+    const std::array<std::byte, 33> program{
+        // [RDI + RCX*4], using ordinary SIB indexing.
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x04}, std::byte{0x8f},
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x1c}, std::byte{0x8f},
+        // [RDI + R8], with REX.X extending the SIB index.
+        std::byte{0x4a}, std::byte{0x89}, std::byte{0x04}, std::byte{0x07},
+        std::byte{0x4a}, std::byte{0x8b}, std::byte{0x1c}, std::byte{0x07},
+        // [RCX*2 + 0x8000], SIB form with no base register.
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x04}, std::byte{0x4d},
+        std::byte{0x00}, std::byte{0x80}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x1c}, std::byte{0x4d},
+        std::byte{0x00}, std::byte{0x80}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x8000, program), "SIB program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x8000;
+    state.gpr[0] = 0xaabbccddeeff0011ULL;
+    state.gpr[1] = 2;
+    state.gpr[7] = 0x8040;
+    state.gpr[8] = 4;
+    const meridian::cpu::Interpreter interpreter{};
+
+    for (int i = 0; i < 6; ++i) {
+        require(interpreter.step(state, memory) == StepResult::Executed,
+                "supported SIB load/store should execute");
+    }
+    require(memory.read_le<std::uint64_t>(0x8048).value_or(0) == state.gpr[0],
+            "SIB scale and base/index registers should calculate the first address");
+    require(memory.read_le<std::uint64_t>(0x8044).value_or(0) == state.gpr[0],
+            "REX.X should select R8 as the SIB index");
+    require(memory.read_le<std::uint64_t>(0x8004).value_or(0) == state.gpr[0],
+            "SIB no-base form should use its signed disp32 and scaled index");
+    require(state.gpr[3] == state.gpr[0], "SIB loads should copy guest memory into RBX");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "SIB program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -376,6 +417,7 @@ int main() {
         test_memory_operand_mov();
         test_memory_operand_faults();
         test_immediate_arithmetic();
+        test_sib_memory_addressing();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
