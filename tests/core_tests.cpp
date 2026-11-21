@@ -4524,6 +4524,50 @@ void test_16bit_register_arithmetic() {
             "16-bit XOR should update only the low word");
 }
 
+void test_16bit_group1_immediates() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33700, 0x100};
+    const std::array<std::byte, 21> program{
+        // ADD AX, -2 (imm8); SUB CX, 0x1234 (imm16).
+        std::byte{0x66}, std::byte{0x83}, std::byte{0xc0}, std::byte{0xfe},
+        std::byte{0x66}, std::byte{0x81}, std::byte{0xe9},
+        std::byte{0x34}, std::byte{0x12},
+        // ADD word [RDI+2], 5 (imm8); SUB word [RDI+4], 1 (imm16).
+        std::byte{0x66}, std::byte{0x83}, std::byte{0x47}, std::byte{0x02},
+        std::byte{0x05},
+        std::byte{0x66}, std::byte{0x81}, std::byte{0x6f}, std::byte{0x04},
+        std::byte{0x01}, std::byte{0x00},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x33700, program), "16-bit immediate program should load");
+    require(memory.write_le<std::uint16_t>(0x33782, 10U),
+            "16-bit immediate ADD target should initialize");
+    require(memory.write_le<std::uint16_t>(0x33784, 10U),
+            "16-bit immediate SUB target should initialize");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x33700;
+    state.gpr[0] = 0x1122334455660001ULL;
+    state.gpr[1] = 0xaabbccddeeff2000ULL;
+    state.gpr[7] = 0x33780;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x112233445566ffffULL,
+            "16-bit imm8 ADD should sign-extend and preserve upper register bits");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[1] == 0xaabbccddeeff0dccULL,
+            "16-bit imm16 SUB should consume two immediate bytes and preserve upper bits");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x33782).value_or(0) == 15U,
+            "16-bit memory ADD with sign-extended imm8 should store its result");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x33784).value_or(0) == 9U,
+            "16-bit memory SUB with imm16 should store its result");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "16-bit immediate program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4618,6 +4662,7 @@ int main() {
         test_shl_shr_sar_group2();
         test_cmovcc_and_setcc();
         test_16bit_register_arithmetic();
+        test_16bit_group1_immediates();
 
         test_cpu_state_reset();
         test_interpreter();
