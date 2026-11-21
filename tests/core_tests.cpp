@@ -676,7 +676,7 @@ void test_memory_arithmetic_extended_addressing() {
         // ADD qword [RDI + RCX*4 + 8], R8.
         std::byte{0x4c}, std::byte{0x01}, std::byte{0x44}, std::byte{0x8f}, std::byte{0x08},
         // XOR dword [RIP + disp32], EDX; displacement points to 0x11080.
-        std::byte{0x31}, std::byte{0x15}, std::byte{0x6e}, std::byte{0x00},
+        std::byte{0x31}, std::byte{0x15}, std::byte{0x75}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00},
         std::byte{0xf4}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90},
         std::byte{0x90}, std::byte{0x90}, std::byte{0x90}
