@@ -659,7 +659,7 @@ void test_memory_arithmetic() {
             "memory CMP should execute");
     require(memory.read_le<std::uint32_t>(0xf084).value_or(0) == before_cmp,
             "memory CMP must not modify its operand");
-    require((state.rflags & (1ULL << 6U)) == 0,
+    require((state.rflags & (1ULL << 6U)) != 0,
             "CMP 15 against 15 should set ZF");
     require(interpreter.step(state, memory) == StepResult::Executed,
             "32-bit memory SUB should execute");
