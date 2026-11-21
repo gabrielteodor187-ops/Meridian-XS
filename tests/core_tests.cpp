@@ -2641,6 +2641,64 @@ void test_sse2_packed_integer_arithmetic() {
             "PSUBQ should subtract both 64-bit lanes independently");
 }
 
+
+void test_sse2_packed_compare_and_movemask() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x2d000, 64};
+    const std::array<std::byte, 8> program{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x74}, std::byte{0xc1}, // PCMPEQB XMM0,XMM1
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0xd7}, std::byte{0xd8}  // PMOVMSKB EBX,XMM0
+    };
+    require(memory.write(0x2d000, program), "compare/movemask program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x2d000;
+    state.control_registers[4] = 1ULL << 9U;
+    for (std::size_t i = 0; i < 16; ++i) {
+        state.xmm[0][i] = static_cast<std::byte>(i);
+        state.xmm[1][i] = static_cast<std::byte>((i % 2U) == 0 ? i : i + 1U);
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "PCMPEQB should execute");
+    for (std::size_t i = 0; i < 16; ++i) {
+        const std::byte expected = (i % 2U) == 0 ? std::byte{0xff} : std::byte{0x00};
+        require(state.xmm[0][i] == expected,
+                "PCMPEQB should produce all-ones or all-zero byte lanes");
+    }
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "PMOVMSKB should execute");
+    require(state.gpr[3] == 0x5555U,
+            "PMOVMSKB should collect the sign bits of all 16 XMM bytes");
+
+    const std::array<std::byte, 4> greater_than{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x66}, std::byte{0xc1}
+    };
+    require(memory.write(0x2d020, greater_than),
+            "PCMPGTD instruction should load");
+    meridian::cpu::CpuState signed_state{};
+    signed_state.rip = 0x2d020;
+    signed_state.control_registers[4] = 1ULL << 9U;
+    signed_state.xmm[0] = {
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x80},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}
+    };
+    signed_state.xmm[1] = {
+        std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x02}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}
+    };
+    require(interpreter.step(signed_state, memory) == StepResult::Executed,
+            "PCMPGTD should execute");
+    require(signed_state.xmm[0][0] == std::byte{0xff} &&
+            signed_state.xmm[0][4] == std::byte{0x00} &&
+            signed_state.xmm[0][8] == std::byte{0x00} &&
+            signed_state.xmm[0][12] == std::byte{0x00},
+            "PCMPGTD should use signed 32-bit comparisons");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2700,6 +2758,7 @@ int main() {
         test_bounded_execution_engine();
         test_sse_sse2_xmm_instructions();
         test_sse2_packed_integer_arithmetic();
+        test_sse2_packed_compare_and_movemask();
 
         test_cpu_state_reset();
         test_interpreter();

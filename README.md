@@ -38,7 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
-- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB, with OSFXSR gating and MOVDQA alignment checks.
+- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -304,3 +304,8 @@ Added 128-bit XMM register and memory support for MOVDQA/MOVDQU, PXOR, PAND, POR
 ### v0.56.0 — Packed SSE2 integer arithmetic
 
 Added packed integer addition and subtraction for 8-, 16-, 32-, and 64-bit lanes: PADDB/PADDW/PADDD/PADDQ and PSUBB/PSUBW/PSUBD/PSUBQ. Each lane wraps independently at its element width and leaves integer flags unchanged. Tests verify independent 64-bit lane addition and subtraction. The SIMD backend remains an incomplete SSE/SSE2 subset and is not yet sufficient for commercial game workloads.
+
+
+### v0.57.0 — Packed SSE2 comparisons and byte movemask
+
+Added PCMPEQB/PCMPEQW/PCMPEQD and PCMPGTB/PCMPGTW/PCMPGTD, with signed comparisons for greater-than operations. Added register-form PMOVMSKB to gather the high bit of each XMM byte into a 32-bit GPR result. Tests cover alternating byte equality, movemask extraction, and signed dword comparisons. This remains an incomplete SIMD subset; floating-point SIMD, shuffles, scalar/vector conversions, and modern vector extensions are not yet implemented.

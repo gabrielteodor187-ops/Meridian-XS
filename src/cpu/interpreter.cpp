@@ -312,8 +312,34 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         const bool packed_add_sub =
             second == 0xfc || second == 0xfd || second == 0xfe || second == 0xd4 ||
             second == 0xf8 || second == 0xf9 || second == 0xfa || second == 0xfb;
+        const bool packed_compare =
+            second == 0x74 || second == 0x75 || second == 0x76 ||
+            second == 0x64 || second == 0x65 || second == 0x66;
+        if (second == 0xd7) { // PMOVMSKB r32, xmm
+            if (!operand_size_override || prefix_f3 || prefix_f2)
+                return StepResult::UnsupportedInstruction;
+            if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+                (state.control_registers[4] & (1ULL << 9U)) == 0)
+                return StepResult::UnsupportedInstruction;
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if ((modrm >> 6U) != 3U) return StepResult::UnsupportedInstruction;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t source =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            std::uint32_t mask = 0;
+            for (std::size_t i = 0; i < 16; ++i) {
+                if ((std::to_integer<unsigned char>(state.xmm[source][i]) & 0x80U) != 0)
+                    mask |= 1U << i;
+            }
+            state.gpr[destination] = mask;
+            state.rip = pc;
+            return StepResult::Executed;
+        }
         if (second == 0x6f || second == 0x7f || second == 0xef ||
-            second == 0xdb || second == 0xeb || second == 0x57 || packed_add_sub) {
+            second == 0xdb || second == 0xeb || second == 0x57 ||
+            packed_add_sub || packed_compare) {
             const bool is_move = second == 0x6f || second == 0x7f;
             const bool aligned_move = is_move && operand_size_override && !prefix_f3;
             const bool unaligned_move = is_move && prefix_f3 && !operand_size_override;
@@ -321,8 +347,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                                         !prefix_f3 && !prefix_f2;
             const bool bitwise_sse2 = !is_move && !packed_add_sub && second != 0x57 &&
                                       operand_size_override && !prefix_f3 && !prefix_f2;
-            const bool packed_sse2 = packed_add_sub && operand_size_override &&
-                                     !prefix_f3 && !prefix_f2;
+            const bool packed_sse2 = (packed_add_sub || packed_compare) &&
+                                     operand_size_override && !prefix_f3 && !prefix_f2;
             if (!(aligned_move || unaligned_move || bitwise_legacy ||
                   bitwise_sse2 || packed_sse2) || prefix_f2)
                 return StepResult::UnsupportedInstruction;
@@ -362,14 +388,18 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 if (register_operand) state.xmm[rm_index] = state.xmm[reg_index];
                 else if (!memory.write(address, state.xmm[reg_index]))
                     return StepResult::MemoryFault;
-            } else if (packed_add_sub) {
-                const std::size_t lane_size =
-                    (second == 0xfc || second == 0xf8) ? 1U :
-                    (second == 0xfd || second == 0xf9) ? 2U :
-                    (second == 0xfe || second == 0xfa) ? 4U : 8U;
+            } else if (packed_add_sub || packed_compare) {
+                const std::size_t lane_size = packed_compare
+                    ? ((second == 0x74 || second == 0x64) ? 1U :
+                       (second == 0x75 || second == 0x65) ? 2U : 4U)
+                    : ((second == 0xfc || second == 0xf8) ? 1U :
+                       (second == 0xfd || second == 0xf9) ? 2U :
+                       (second == 0xfe || second == 0xfa) ? 4U : 8U);
                 const bool is_add =
                     second == 0xfc || second == 0xfd ||
                     second == 0xfe || second == 0xd4;
+                const bool is_equal_compare =
+                    second == 0x74 || second == 0x75 || second == 0x76;
                 for (std::size_t lane = 0; lane < 16; lane += lane_size) {
                     std::uint64_t lhs = 0;
                     std::uint64_t rhs = 0;
@@ -383,8 +413,28 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                     }
                     const std::uint64_t mask = lane_size == 8U
                         ? UINT64_MAX : ((1ULL << (lane_size * 8U)) - 1ULL);
-                    const std::uint64_t result =
-                        (is_add ? lhs + rhs : lhs - rhs) & mask;
+                    std::uint64_t result = 0;
+                    if (packed_add_sub) {
+                        result = (is_add ? lhs + rhs : lhs - rhs) & mask;
+                    } else {
+                        bool condition = false;
+                        if (is_equal_compare) {
+                            condition = lhs == rhs;
+                        } else if (lane_size == 1U) {
+                            condition = std::bit_cast<std::int8_t>(
+                                static_cast<std::uint8_t>(lhs)) >
+                                std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(rhs));
+                        } else if (lane_size == 2U) {
+                            condition = std::bit_cast<std::int16_t>(
+                                static_cast<std::uint16_t>(lhs)) >
+                                std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(rhs));
+                        } else {
+                            condition = std::bit_cast<std::int32_t>(
+                                static_cast<std::uint32_t>(lhs)) >
+                                std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(rhs));
+                        }
+                        result = condition ? mask : 0;
+                    }
                     for (std::size_t byte = 0; byte < lane_size; ++byte)
                         state.xmm[reg_index][lane + byte] =
                             static_cast<std::byte>((result >> (byte * 8U)) & 0xffU);
