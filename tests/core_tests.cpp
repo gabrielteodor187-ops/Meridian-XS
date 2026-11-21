@@ -3580,6 +3580,57 @@ void test_avx_vex_128_256_and_zero_upper() {
                     "VZEROALL should clear all YMM upper halves");
 }
 
+
+void test_avx_double_and_bitwise_operations() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32100, 0x100};
+    const std::array<std::byte, 4> vaddpd{
+        std::byte{0xc5}, std::byte{0xf1}, std::byte{0x58}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 4> vandnps{
+        std::byte{0xc5}, std::byte{0xf0}, std::byte{0x55}, std::byte{0xc2}
+    };
+    require(memory.write(0x32100, vaddpd), "VADDPD instruction should load");
+    require(memory.write(0x32110, vandnps), "VANDNPS instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32100;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    const std::array<double, 2> left{1.5, 2.5};
+    const std::array<double, 2> right{2.5, 3.5};
+    for (std::size_t lane = 0; lane < 2; ++lane) {
+        const auto a = std::bit_cast<std::uint64_t>(left[lane]);
+        const auto b = std::bit_cast<std::uint64_t>(right[lane]);
+        for (std::size_t byte = 0; byte < 8; ++byte) {
+            state.xmm[1][lane * 8U + byte] =
+                static_cast<std::byte>((a >> (byte * 8U)) & 0xffU);
+            state.xmm[2][lane * 8U + byte] =
+                static_cast<std::byte>((b >> (byte * 8U)) & 0xffU);
+        }
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VADDPD.128 should execute");
+    for (std::size_t lane = 0; lane < 2; ++lane) {
+        std::uint64_t bits = 0;
+        for (std::size_t byte = 0; byte < 8; ++byte)
+            bits |= static_cast<std::uint64_t>(
+                std::to_integer<unsigned char>(state.xmm[0][lane * 8U + byte]))
+                << (byte * 8U);
+        require(std::bit_cast<double>(bits) == left[lane] + right[lane],
+                "VADDPD should add packed double-precision lanes");
+    }
+
+    state.rip = 0x32110;
+    state.xmm[1].fill(std::byte{0xf0});
+    state.xmm[2].fill(std::byte{0x0f});
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VANDNPS should execute");
+    for (const auto byte : state.xmm[0])
+        require(byte == std::byte{0x0f},
+                "VANDNPS should compute NOT(source1) AND source2");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3658,6 +3709,7 @@ int main() {
         test_xsave_xrstor_ymm_state();
         test_cpuid_xsave_leaf_and_osxsave();
         test_avx_vex_128_256_and_zero_upper();
+        test_avx_double_and_bitwise_operations();
 
         test_cpu_state_reset();
         test_interpreter();

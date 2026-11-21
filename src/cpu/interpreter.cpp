@@ -248,7 +248,7 @@ struct VexPrefix {
 template <typename Memory>
 StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                        std::uint8_t opcode, const VexPrefix& vex) noexcept {
-    if (vex.map != 1 || vex.w || vex.pp != 0)
+    if (vex.map != 1 || vex.w || vex.pp > 1)
         return StepResult::UnsupportedInstruction;
     if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
         (state.control_registers[4] & ((1ULL << 9U) | (1ULL << 18U))) !=
@@ -258,7 +258,7 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
 
     const std::size_t width = vex.l ? 32U : 16U;
     if (opcode == 0x77) { // VZEROUPPER / VZEROALL
-        if (vex.vvvv != 0x0fU) return StepResult::UnsupportedInstruction;
+        if (vex.pp != 0 || vex.vvvv != 0x0fU) return StepResult::UnsupportedInstruction;
         if (vex.l) {
             for (auto& reg : state.xmm) reg.fill(std::byte{0});
             for (auto& reg : state.ymm_high) reg.fill(std::byte{0});
@@ -272,12 +272,15 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
     const bool is_move_load = opcode == 0x10 || opcode == 0x28;
     const bool is_move_store = opcode == 0x11 || opcode == 0x29;
     const bool aligned_move = opcode == 0x28 || opcode == 0x29;
+    const bool is_and = opcode == 0x54;
+    const bool is_andn = opcode == 0x55;
+    const bool is_or = opcode == 0x56;
     const bool is_xor = opcode == 0x57;
     const bool is_add = opcode == 0x58;
     const bool is_sub = opcode == 0x5c;
     const bool is_mul = opcode == 0x59;
     const bool is_div = opcode == 0x5e;
-    if (!(is_move_load || is_move_store || is_xor ||
+    if (!(is_move_load || is_move_store || is_and || is_andn || is_or || is_xor ||
           is_add || is_sub || is_mul || is_div))
         return StepResult::UnsupportedInstruction;
 
@@ -303,7 +306,8 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
             return StepResult::MemoryFault;
         if (aligned_move && (address & (width - 1U)) != 0)
             return StepResult::GeneralProtectionFault;
-        if (is_move_load || is_xor || is_add || is_sub || is_mul || is_div) {
+        if (is_move_load || is_and || is_andn || is_or || is_xor ||
+            is_add || is_sub || is_mul || is_div) {
             if (!memory.read(address,
                     std::span<std::byte>{source2}.first(width)))
                 return StepResult::MemoryFault;
@@ -341,11 +345,41 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
             std::copy(state.ymm_high[vex.vvvv].begin(),
                       state.ymm_high[vex.vvvv].end(), source1.begin() + 16);
         std::array<std::byte, 32> result{};
-        if (is_xor) {
-            for (std::size_t i = 0; i < width; ++i)
-                result[i] = source1[i] ^ source2[i];
+        if (is_and || is_andn || is_or || is_xor) {
+            for (std::size_t i = 0; i < width; ++i) {
+                if (is_and) result[i] = source1[i] & source2[i];
+                else if (is_andn) result[i] = static_cast<std::byte>(
+                    static_cast<unsigned char>(~std::to_integer<unsigned char>(source1[i])) &
+                    std::to_integer<unsigned char>(source2[i]));
+                else if (is_or) result[i] = source1[i] | source2[i];
+                else result[i] = source1[i] ^ source2[i];
+            }
         } else {
-            for (std::size_t lane = 0; lane < width / 4U; ++lane) {
+            const std::size_t lane_size = vex.pp == 1 ? 8U : 4U;
+            for (std::size_t lane = 0; lane < width / lane_size; ++lane) {
+                if (lane_size == 8U) {
+                    std::uint64_t lhs_bits = 0;
+                    std::uint64_t rhs_bits = 0;
+                    for (std::size_t byte = 0; byte < 8; ++byte) {
+                        lhs_bits |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(source1[lane * 8U + byte]))
+                            << (byte * 8U);
+                        rhs_bits |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(source2[lane * 8U + byte]))
+                            << (byte * 8U);
+                    }
+                    const double lhs = std::bit_cast<double>(lhs_bits);
+                    const double rhs = std::bit_cast<double>(rhs_bits);
+                    double value = 0.0;
+                    if (is_add) value = lhs + rhs;
+                    else if (is_sub) value = lhs - rhs;
+                    else if (is_mul) value = lhs * rhs;
+                    else value = lhs / rhs;
+                    const std::uint64_t bits = std::bit_cast<std::uint64_t>(value);
+                    for (std::size_t byte = 0; byte < 8; ++byte)
+                        result[lane * 8U + byte] =
+                            static_cast<std::byte>((bits >> (byte * 8U)) & 0xffU);
+                } else {
                 std::uint32_t lhs_bits = 0;
                 std::uint32_t rhs_bits = 0;
                 for (std::size_t byte = 0; byte < 4; ++byte) {
@@ -356,17 +390,18 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                         std::to_integer<unsigned char>(source2[lane * 4U + byte]))
                         << (byte * 8U);
                 }
-                const float lhs = std::bit_cast<float>(lhs_bits);
-                const float rhs = std::bit_cast<float>(rhs_bits);
-                float value = 0.0F;
-                if (is_add) value = lhs + rhs;
-                else if (is_sub) value = lhs - rhs;
-                else if (is_mul) value = lhs * rhs;
-                else value = lhs / rhs;
-                const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
-                for (std::size_t byte = 0; byte < 4; ++byte)
-                    result[lane * 4U + byte] =
-                        static_cast<std::byte>((bits >> (byte * 8U)) & 0xffU);
+                    const float lhs = std::bit_cast<float>(lhs_bits);
+                    const float rhs = std::bit_cast<float>(rhs_bits);
+                    float value = 0.0F;
+                    if (is_add) value = lhs + rhs;
+                    else if (is_sub) value = lhs - rhs;
+                    else if (is_mul) value = lhs * rhs;
+                    else value = lhs / rhs;
+                    const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+                    for (std::size_t byte = 0; byte < 4; ++byte)
+                        result[lane * 4U + byte] =
+                            static_cast<std::byte>((bits >> (byte * 8U)) & 0xffU);
+                }
             }
         }
         std::copy_n(result.begin(), 16, state.xmm[destination].begin());

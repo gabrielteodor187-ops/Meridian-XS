@@ -418,4 +418,9 @@ Updated the basic-leaf maximum assertion to include leaf 0xD and added tests for
 
 ### v0.69.0 — Initial AVX VEX instruction subset
 
-Added two-byte and three-byte VEX prefix decoding for the 0F opcode map and initial 128-/256-bit AVX instructions: VADDPS, VSUBPS, VMULPS, VDIVPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. VEX.128 writes clear the destination's upper YMM half; VEX.256 operations process all eight single-precision lanes. Execution requires OSXSAVE, OSFXSR, and XCR0 x87/SSE/AVX state enablement. Tests cover 128-/256-bit VADDPS and zero-upper behavior. This is not a complete AVX implementation, and AVX2 remains unsupported and unadvertised.
+Added two-byte and three-byte VEX prefix decoding for the 0F opcode map and initial 128-/256-bit AVX instructions: VADDPS/VADDPD, VSUBPS/PD, VMULPS/PD, VDIVPS/PD, VANDPS/PD, VANDNPS/PD, VORPS/PD, VXORPS/PD, VMOVUPS/UPD and VMOVAPS/APD, VZEROUPPER, and VZEROALL. VEX.128 writes clear the destination's upper YMM half; VEX.256 operations process all eight single-precision lanes. Execution requires OSXSAVE, OSFXSR, and XCR0 x87/SSE/AVX state enablement. Tests cover 128-/256-bit VADDPS and zero-upper behavior. This is not a complete AVX implementation, and AVX2 remains unsupported and unadvertised.
+
+
+### v0.70.0 — AVX double-precision and bitwise forms
+
+Extended the VEX.0F subset with packed double-precision arithmetic (VADDPD/VSUBPD/VMULPD/VDIVPD), packed bitwise AND/ANDN/OR/XOR forms for PS and PD, and 128-/256-bit unaligned/aligned packed double move encodings. Tests cover VADDPD and VANDNPS. This remains a subset of AVX; AVX2 and many AVX instructions are still missing, and CPUID continues to avoid advertising AVX prematurely.
