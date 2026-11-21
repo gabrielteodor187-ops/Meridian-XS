@@ -7,7 +7,7 @@ void print_banner() {
     std::cout
         << "Meridian-XS\n"
         << "Xbox Series X|S research emulator project\n"
-        << "Version 0.7.0 (register-indirect memory operands)\n\n";
+        << "Version 0.8.0 (immediate arithmetic execution)\n\n";
 }
 
 void print_status() {
@@ -22,6 +22,7 @@ void print_status() {
         << "  - 64-bit PUSH/POP for general-purpose registers\n"
         << "  - near relative CALL and RET\n"
         << "  - 64-bit MOV loads/stores using base + disp8/disp32\n"
+        << "  - 64-bit ADD/SUB/XOR/CMP with sign-extended imm32\n"
         << "  - core tests registered with CTest\n\n"
         << "Still missing:\n"
         << "  - broad x86-64 instruction and memory-addressing support (SIB/RIP-relative still missing)\n"

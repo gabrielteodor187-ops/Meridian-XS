@@ -171,6 +171,56 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
+    // Group-1 64-bit immediate arithmetic: ADD, SUB, XOR, and CMP.
+    // The imm32 operand is sign-extended as required by x86-64.
+    if (rex_w && opcode == 0x81) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
+
+        const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
+        if (operation != 0 && operation != 5 && operation != 6 && operation != 7)
+            return StepResult::UnsupportedInstruction;
+
+        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
+                                        (rex_b ? 8U : 0U);
+        const auto raw_immediate = memory.read_le<std::uint32_t>(pc);
+        if (!raw_immediate) return StepResult::MemoryFault;
+        pc += 4;
+        const auto immediate = std::bit_cast<std::int32_t>(*raw_immediate);
+        const std::uint64_t lhs = state.gpr[destination];
+        const std::uint64_t rhs = static_cast<std::uint64_t>(
+            static_cast<std::int64_t>(immediate));
+        std::uint64_t result = 0;
+
+        switch (operation) {
+        case 0: // ADD
+            result = lhs + rhs;
+            update_add_flags(state, lhs, rhs, result);
+            state.gpr[destination] = result;
+            break;
+        case 5: // SUB
+            result = lhs - rhs;
+            update_sub_flags(state, lhs, rhs, result);
+            state.gpr[destination] = result;
+            break;
+        case 6: // XOR
+            result = lhs ^ rhs;
+            update_logic_flags(state, result);
+            state.gpr[destination] = result;
+            break;
+        case 7: // CMP
+            result = lhs - rhs;
+            update_sub_flags(state, lhs, rhs, result);
+            break;
+        default:
+            return StepResult::UnsupportedInstruction;
+        }
+
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // 64-bit MOV between a register and [base + displacement].
     // SIB and RIP-relative addressing are deliberately left unsupported.
     if (rex_w && (opcode == 0x8b || opcode == 0x89)) {

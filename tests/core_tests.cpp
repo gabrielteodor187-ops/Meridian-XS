@@ -294,6 +294,62 @@ void test_memory_operand_faults() {
             "SIB addressing should be reported as unsupported rather than misdecoded");
 }
 
+void test_immediate_arithmetic() {
+    using meridian::cpu::StepResult;
+    constexpr std::uint64_t zero_flag = 1ULL << 6U;
+    constexpr std::uint64_t overflow_flag = 1ULL << 11U;
+    meridian::core::GuestMemory memory{0xa000, 64};
+    const std::array<std::byte, 36> program{
+        // ADD RAX, 5; SUB RAX, 2; XOR RAX, 0; CMP RAX, 6.
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xc0},
+        std::byte{0x05}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xe8},
+        std::byte{0x02}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xf0},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xf8},
+        std::byte{0x06}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        // ADD RAX, -1 (sign-extended imm32).
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xc0},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xf4}
+    };
+    require(memory.write(0xa000, program), "immediate arithmetic program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xa000;
+    state.gpr[0] = 3;
+    const meridian::cpu::Interpreter interpreter{};
+
+    for (int i = 0; i < 4; ++i) {
+        require(interpreter.step(state, memory) == StepResult::Executed,
+                "supported immediate arithmetic should execute");
+    }
+    require(state.gpr[0] == 6, "ADD/SUB/XOR immediate operations should update RAX");
+    require((state.rflags & zero_flag) != 0, "CMP immediate equality should set ZF");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "negative imm32 should execute with sign extension");
+    require(state.gpr[0] == 5, "negative imm32 should be sign-extended to 64 bits");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "immediate arithmetic program should reach HLT");
+
+    meridian::core::GuestMemory overflow_memory{0xa100, 16};
+    const std::array<std::byte, 7> overflow_program{
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xc0},
+        std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}
+    };
+    require(overflow_memory.write(0xa100, overflow_program),
+            "overflow test instruction should load");
+    meridian::cpu::CpuState overflow_state{};
+    overflow_state.rip = 0xa100;
+    overflow_state.gpr[0] = 0x7fffffffffffffffULL;
+    require(interpreter.step(overflow_state, overflow_memory) == StepResult::Executed,
+            "overflowing immediate ADD should execute");
+    require(overflow_state.gpr[0] == 0x8000000000000000ULL,
+            "immediate ADD should wrap at 64 bits");
+    require((overflow_state.rflags & overflow_flag) != 0,
+            "immediate ADD should set signed overflow");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -319,6 +375,7 @@ int main() {
         test_stack_memory_fault_is_atomic();
         test_memory_operand_mov();
         test_memory_operand_faults();
+        test_immediate_arithmetic();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

@@ -18,6 +18,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Near relative CALL and RET with checked guest-stack access.
 - 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement.
 - REX.R/REX.B extension for memory MOV register and base selection.
+- Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
