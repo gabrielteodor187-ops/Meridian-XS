@@ -319,3 +319,8 @@ Corrected the first PCMPGTD test lane so the signed greater-than case compares p
 ### v0.58.0 — SSE2/SSE lane shuffles
 
 Added PSHUFD (dword shuffle with imm8 lane selection) and SHUFPS (two-source dword shuffle). Memory-source effective-address decoding accounts for the trailing immediate byte, including RIP-relative addressing. Tests cover reverse-order PSHUFD selection and the identity SHUFPS control pattern. The SIMD implementation remains a deliberately incomplete subset.
+
+
+### v0.58.1 — Memory-source shuffle coverage
+
+Corrected the SIMD memory-source path to read operands for PSHUFD/SHUFPS. Added a RIP-relative PSHUFD test that verifies effective-address calculation includes the trailing immediate byte and that memory operands are actually loaded.

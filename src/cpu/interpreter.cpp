@@ -384,7 +384,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 if (aligned_move && (address & 0xfU) != 0)
                     return StepResult::GeneralProtectionFault;
                 if (second == 0x6f || second == 0xef ||
-                    second == 0xdb || second == 0xeb || second == 0x57) {
+                    second == 0xdb || second == 0xeb || second == 0x57 ||
+                    shuffle_operation) {
                     if (!memory.read(address, source)) return StepResult::MemoryFault;
                 }
             }

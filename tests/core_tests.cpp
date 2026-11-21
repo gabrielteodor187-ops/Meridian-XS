@@ -2745,6 +2745,38 @@ void test_sse2_pshufd_and_shufps() {
             "SHUFPS should execute");
     require(float_shuffle.xmm[0] == state.xmm[1],
             "SHUFPS immediate 0xe4 should preserve the selected 0,1,2,3 lane order");
+    const std::array<std::byte, 9> rip_relative_pshufd{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x70}, std::byte{0x05},
+        std::byte{0x17}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x1b}
+    };
+    require(memory.write(0x2e040, rip_relative_pshufd),
+            "RIP-relative PSHUFD instruction should load");
+    std::array<std::byte, 16> shuffle_source{};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        const std::uint32_t value = static_cast<std::uint32_t>((lane + 1U) * 10U);
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            shuffle_source[lane * 4U + byte] =
+                static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);
+    }
+    require(memory.write(0x2e060, shuffle_source),
+            "RIP-relative PSHUFD source should load");
+    meridian::cpu::CpuState memory_shuffle{};
+    memory_shuffle.rip = 0x2e040;
+    memory_shuffle.control_registers[4] = 1ULL << 9U;
+    require(interpreter.step(memory_shuffle, memory) == StepResult::Executed,
+            "RIP-relative PSHUFD memory source should execute");
+    const std::array<std::uint32_t, 4> memory_expected{40, 30, 20, 10};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        std::uint32_t actual = 0;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            actual |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(
+                    memory_shuffle.xmm[0][lane * 4U + byte])) << (byte * 8U);
+        require(actual == memory_expected[lane],
+                "RIP-relative PSHUFD should read source data after accounting for imm8");
+    }
+
 }
 
 void test_cpu_state_reset() {
