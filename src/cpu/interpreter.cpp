@@ -381,6 +381,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             second == 0x74 || second == 0x75 || second == 0x76 ||
             second == 0x64 || second == 0x65 || second == 0x66;
         const bool shuffle_operation = second == 0x70 || second == 0xc6;
+        const bool floating_arithmetic =
+            second == 0x58 || second == 0x5c || second == 0x59 || second == 0x5e;
         const bool shuffle_pshufd = second == 0x70 && operand_size_override &&
                                     !prefix_f3 && !prefix_f2;
         const bool shuffle_shufps = second == 0xc6 && !operand_size_override &&
@@ -409,7 +411,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         }
         if (second == 0x6f || second == 0x7f || second == 0xef ||
             second == 0xdb || second == 0xeb || second == 0x57 ||
-            packed_add_sub || packed_compare || shuffle_operation) {
+            packed_add_sub || packed_compare || shuffle_operation ||
+            floating_arithmetic) {
             const bool is_move = second == 0x6f || second == 0x7f;
             const bool aligned_move = is_move && operand_size_override && !prefix_f3;
             const bool unaligned_move = is_move && prefix_f3 && !operand_size_override;
@@ -420,8 +423,13 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             const bool packed_sse2 = (packed_add_sub || packed_compare) &&
                                      operand_size_override && !prefix_f3 && !prefix_f2;
             const bool valid_shuffle = shuffle_pshufd || shuffle_shufps;
+            const bool valid_float = floating_arithmetic &&
+                ((!operand_size_override && !prefix_f3 && !prefix_f2) ||
+                 (operand_size_override && !prefix_f3 && !prefix_f2) ||
+                 (!operand_size_override && prefix_f3 && !prefix_f2) ||
+                 (!operand_size_override && !prefix_f3 && prefix_f2));
             if (!(aligned_move || unaligned_move || bitwise_legacy ||
-                  bitwise_sse2 || packed_sse2 || valid_shuffle) || prefix_f2)
+                  bitwise_sse2 || packed_sse2 || valid_shuffle || valid_float) || prefix_f2 && !valid_float)
                 return StepResult::UnsupportedInstruction;
 
             // This first cut requires OSFXSR and rejects CR0.EM/TS rather than
@@ -450,8 +458,14 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                     return StepResult::GeneralProtectionFault;
                 if (second == 0x6f || second == 0xef ||
                     second == 0xdb || second == 0xeb || second == 0x57 ||
-                    shuffle_operation) {
-                    if (!memory.read(address, source)) return StepResult::MemoryFault;
+                    shuffle_operation || floating_arithmetic) {
+                    const bool scalar_float = floating_arithmetic &&
+                                              (prefix_f3 || prefix_f2);
+                    const std::size_t read_size = scalar_float
+                        ? (prefix_f2 ? 8U : 4U) : 16U;
+                    if (!memory.read(address,
+                            std::span<std::byte>{source}.first(read_size)))
+                        return StepResult::MemoryFault;
                 }
             }
 
@@ -497,6 +511,60 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 if (register_operand) state.xmm[rm_index] = state.xmm[reg_index];
                 else if (!memory.write(address, state.xmm[reg_index]))
                     return StepResult::MemoryFault;
+            } else if (floating_arithmetic) {
+                const bool double_precision = operand_size_override || prefix_f2;
+                const bool scalar = prefix_f3 || prefix_f2;
+                if (double_precision) {
+                    const std::size_t lane_count = scalar ? 1U : 2U;
+                    for (std::size_t lane = 0; lane < lane_count; ++lane) {
+                        std::uint64_t lhs_bits = 0;
+                        std::uint64_t rhs_bits = 0;
+                        for (std::size_t byte = 0; byte < 8; ++byte) {
+                            lhs_bits |= static_cast<std::uint64_t>(
+                                std::to_integer<unsigned char>(
+                                    state.xmm[reg_index][lane * 8U + byte])) << (byte * 8U);
+                            rhs_bits |= static_cast<std::uint64_t>(
+                                std::to_integer<unsigned char>(
+                                    source[lane * 8U + byte])) << (byte * 8U);
+                        }
+                        const double lhs = std::bit_cast<double>(lhs_bits);
+                        const double rhs = std::bit_cast<double>(rhs_bits);
+                        double result = 0.0;
+                        if (second == 0x58) result = lhs + rhs;
+                        else if (second == 0x5c) result = lhs - rhs;
+                        else if (second == 0x59) result = lhs * rhs;
+                        else result = lhs / rhs;
+                        const std::uint64_t result_bits = std::bit_cast<std::uint64_t>(result);
+                        for (std::size_t byte = 0; byte < 8; ++byte)
+                            state.xmm[reg_index][lane * 8U + byte] =
+                                static_cast<std::byte>((result_bits >> (byte * 8U)) & 0xffU);
+                    }
+                } else {
+                    const std::size_t lane_count = scalar ? 1U : 4U;
+                    for (std::size_t lane = 0; lane < lane_count; ++lane) {
+                        std::uint32_t lhs_bits = 0;
+                        std::uint32_t rhs_bits = 0;
+                        for (std::size_t byte = 0; byte < 4; ++byte) {
+                            lhs_bits |= static_cast<std::uint32_t>(
+                                std::to_integer<unsigned char>(
+                                    state.xmm[reg_index][lane * 4U + byte])) << (byte * 8U);
+                            rhs_bits |= static_cast<std::uint32_t>(
+                                std::to_integer<unsigned char>(
+                                    source[lane * 4U + byte])) << (byte * 8U);
+                        }
+                        const float lhs = std::bit_cast<float>(lhs_bits);
+                        const float rhs = std::bit_cast<float>(rhs_bits);
+                        float result = 0.0F;
+                        if (second == 0x58) result = lhs + rhs;
+                        else if (second == 0x5c) result = lhs - rhs;
+                        else if (second == 0x59) result = lhs * rhs;
+                        else result = lhs / rhs;
+                        const std::uint32_t result_bits = std::bit_cast<std::uint32_t>(result);
+                        for (std::size_t byte = 0; byte < 4; ++byte)
+                            state.xmm[reg_index][lane * 4U + byte] =
+                                static_cast<std::byte>((result_bits >> (byte * 8U)) & 0xffU);
+                    }
+                }
             } else if (packed_add_sub || packed_compare) {
                 const std::size_t lane_size = packed_compare
                     ? ((second == 0x74 || second == 0x64) ? 1U :

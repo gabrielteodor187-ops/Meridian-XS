@@ -9,6 +9,7 @@
 #include "meridian/cpu/execution_engine.hpp"
 
 #include <array>
+#include <bit>
 #include <vector>
 #include <cstddef>
 #include <cstdint>
@@ -3011,6 +3012,96 @@ void test_sse_packed_and_scalar_moves() {
             "MOVAPS should reject unaligned memory operands");
 }
 
+
+void test_sse_floating_arithmetic_subset() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31200, 0x100};
+    const std::array<std::byte, 4> addps{
+        std::byte{0x0f}, std::byte{0x58}, std::byte{0xc1}, std::byte{0xf4}
+    };
+    require(memory.write(0x31200, addps), "ADDPS test instruction should load");
+    meridian::cpu::CpuState packed{};
+    packed.rip = 0x31200;
+    packed.control_registers[4] = 1ULL << 9U;
+    const std::array<float, 4> left{1.0F, 2.0F, 3.0F, 4.0F};
+    const std::array<float, 4> right{10.0F, 20.0F, 30.0F, 40.0F};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        const auto l = std::bit_cast<std::uint32_t>(left[lane]);
+        const auto r = std::bit_cast<std::uint32_t>(right[lane]);
+        for (std::size_t byte = 0; byte < 4; ++byte) {
+            packed.xmm[0][lane * 4U + byte] =
+                static_cast<std::byte>((l >> (byte * 8U)) & 0xffU);
+            packed.xmm[1][lane * 4U + byte] =
+                static_cast<std::byte>((r >> (byte * 8U)) & 0xffU);
+        }
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(packed, memory) == StepResult::Executed,
+            "ADDPS should execute");
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        std::uint32_t bits = 0;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            bits |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(packed.xmm[0][lane * 4U + byte]))
+                << (byte * 8U);
+        require(std::bit_cast<float>(bits) == left[lane] + right[lane],
+                "ADDPS should add each packed single-precision lane");
+    }
+
+    const std::array<std::byte, 5> addss{
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0x58},
+        std::byte{0xc1}, std::byte{0xf4}
+    };
+    require(memory.write(0x31220, addss), "ADDSS test instruction should load");
+    meridian::cpu::CpuState scalar{};
+    scalar.rip = 0x31220;
+    scalar.control_registers[4] = 1ULL << 9U;
+    scalar.xmm[0] = packed.xmm[0];
+    scalar.xmm[1] = packed.xmm[1];
+    require(interpreter.step(scalar, memory) == StepResult::Executed,
+            "ADDSS should execute");
+    std::uint32_t scalar_bits = 0;
+    for (std::size_t byte = 0; byte < 4; ++byte)
+        scalar_bits |= static_cast<std::uint32_t>(
+            std::to_integer<unsigned char>(scalar.xmm[0][byte])) << (byte * 8U);
+    require(std::bit_cast<float>(scalar_bits) == 11.0F,
+            "ADDSS should add only the low single-precision lane");
+    require(std::equal(scalar.xmm[0].begin() + 4, scalar.xmm[0].end(),
+                       packed.xmm[0].begin() + 4),
+            "ADDSS should preserve the upper destination lanes");
+
+    const std::array<std::byte, 4> addpd{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x58}, std::byte{0xc1}
+    };
+    require(memory.write(0x31240, addpd), "ADDPD test instruction should load");
+    meridian::cpu::CpuState doubles{};
+    doubles.rip = 0x31240;
+    doubles.control_registers[4] = 1ULL << 9U;
+    const std::array<double, 2> dleft{1.5, 2.5};
+    const std::array<double, 2> dright{2.5, 3.5};
+    for (std::size_t lane = 0; lane < 2; ++lane) {
+        const auto l = std::bit_cast<std::uint64_t>(dleft[lane]);
+        const auto r = std::bit_cast<std::uint64_t>(dright[lane]);
+        for (std::size_t byte = 0; byte < 8; ++byte) {
+            doubles.xmm[0][lane * 8U + byte] =
+                static_cast<std::byte>((l >> (byte * 8U)) & 0xffU);
+            doubles.xmm[1][lane * 8U + byte] =
+                static_cast<std::byte>((r >> (byte * 8U)) & 0xffU);
+        }
+    }
+    require(interpreter.step(doubles, memory) == StepResult::Executed,
+            "ADDPD should execute");
+    for (std::size_t lane = 0; lane < 2; ++lane) {
+        std::uint64_t bits = 0;
+        for (std::size_t byte = 0; byte < 8; ++byte)
+            bits |= static_cast<std::uint64_t>(
+                std::to_integer<unsigned char>(doubles.xmm[0][lane * 8U + byte]))
+                << (byte * 8U);
+        require(std::bit_cast<double>(bits) == dleft[lane] + dright[lane],
+                "ADDPD should add each packed double-precision lane");
+    }
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3076,6 +3167,7 @@ int main() {
         test_fxsave_fxrstor_state_round_trip();
         test_movd_movq_xmm_transfers();
         test_sse_packed_and_scalar_moves();
+        test_sse_floating_arithmetic_subset();
 
         test_cpu_state_reset();
         test_interpreter();
