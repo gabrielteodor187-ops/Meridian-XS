@@ -13,12 +13,22 @@ constexpr std::uint64_t flag_zf = 1ULL << 6;
 constexpr std::uint64_t flag_sf = 1ULL << 7;
 constexpr std::uint64_t flag_of = 1ULL << 11;
 constexpr std::uint64_t arithmetic_flags = flag_cf | flag_pf | flag_af | flag_zf | flag_sf | flag_of;
+constexpr std::size_t rsp_index = 4;
 
 bool fetch8(const core::GuestMemory& memory, std::uint64_t& pc, std::uint8_t& out) noexcept {
     const auto value = memory.read_le<std::uint8_t>(pc);
     if (!value) return false;
     out = *value;
     ++pc;
+    return true;
+}
+
+bool push64(CpuState& state, core::GuestMemory& memory, std::uint64_t value) noexcept {
+    const std::uint64_t old_rsp = state.gpr[rsp_index];
+    if (old_rsp < sizeof(std::uint64_t)) return false;
+    const std::uint64_t new_rsp = old_rsp - sizeof(std::uint64_t);
+    if (!memory.write_le<std::uint64_t>(new_rsp, value)) return false;
+    state.gpr[rsp_index] = new_rsp;
     return true;
 }
 
@@ -52,7 +62,7 @@ void update_logic_flags(CpuState& state, std::uint64_t result) noexcept {
 }
 } // namespace
 
-StepResult Interpreter::step(CpuState& state, const core::GuestMemory& memory) const noexcept {
+StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const noexcept {
     std::uint64_t pc = state.rip;
     std::uint8_t opcode = 0;
     if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
@@ -64,6 +74,26 @@ StepResult Interpreter::step(CpuState& state, const core::GuestMemory& memory) c
     if (opcode == 0xf4) { // HLT
         state.rip = pc;
         return StepResult::Halted;
+    }
+
+    // Near relative CALL rel32 and RET. The stack grows toward lower addresses.
+    if (opcode == 0xe8) {
+        const auto raw_displacement = memory.read_le<std::uint32_t>(pc);
+        if (!raw_displacement) return StepResult::MemoryFault;
+        pc += 4;
+        const auto displacement = std::bit_cast<std::int32_t>(*raw_displacement);
+        if (!push64(state, memory, pc)) return StepResult::MemoryFault;
+        state.rip = pc + static_cast<std::int64_t>(displacement);
+        return StepResult::Executed;
+    }
+    if (opcode == 0xc3) {
+        const std::uint64_t old_rsp = state.gpr[rsp_index];
+        if (old_rsp > UINT64_MAX - sizeof(std::uint64_t)) return StepResult::MemoryFault;
+        const auto target = memory.read_le<std::uint64_t>(old_rsp);
+        if (!target) return StepResult::MemoryFault;
+        state.gpr[rsp_index] = old_rsp + sizeof(std::uint64_t);
+        state.rip = *target;
+        return StepResult::Executed;
     }
 
     // Short relative branches: JMP, JZ, and JNZ.
@@ -86,7 +116,7 @@ StepResult Interpreter::step(CpuState& state, const core::GuestMemory& memory) c
         const auto raw_displacement = memory.read_le<std::uint32_t>(pc);
         if (!raw_displacement) return StepResult::MemoryFault;
         pc += 4;
-        const auto displacement = static_cast<std::int32_t>(*raw_displacement);
+        const auto displacement = std::bit_cast<std::int32_t>(*raw_displacement);
         const bool zero = (state.rflags & flag_zf) != 0;
         const bool take = second == 0x84 ? zero : !zero;
         state.rip = take ? pc + static_cast<std::int64_t>(displacement) : pc;
@@ -101,6 +131,26 @@ StepResult Interpreter::step(CpuState& state, const core::GuestMemory& memory) c
         rex_r = (opcode & 0x04U) != 0;
         rex_b = (opcode & 0x01U) != 0;
         if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
+    }
+
+    // PUSH/POP 64-bit general-purpose registers. REX.B selects R8-R15.
+    if (opcode >= 0x50 && opcode <= 0x5f) {
+        const bool is_push = opcode <= 0x57;
+        const std::size_t reg = static_cast<std::size_t>(
+            opcode - (is_push ? 0x50 : 0x58)) + (rex_b ? 8U : 0U);
+        if (is_push) {
+            const std::uint64_t value = state.gpr[reg];
+            if (!push64(state, memory, value)) return StepResult::MemoryFault;
+        } else {
+            const std::uint64_t old_rsp = state.gpr[rsp_index];
+            if (old_rsp > UINT64_MAX - sizeof(std::uint64_t)) return StepResult::MemoryFault;
+            const auto value = memory.read_le<std::uint64_t>(old_rsp);
+            if (!value) return StepResult::MemoryFault;
+            state.gpr[rsp_index] = old_rsp + sizeof(std::uint64_t);
+            state.gpr[reg] = *value;
+        }
+        state.rip = pc;
+        return StepResult::Executed;
     }
 
     // MOV r64, imm64 / MOV r32, imm32. REX.B selects R8-R15.
@@ -134,22 +184,22 @@ StepResult Interpreter::step(CpuState& state, const core::GuestMemory& memory) c
         std::uint64_t result = 0;
 
         switch (opcode) {
-        case 0x01: // ADD
+        case 0x01:
             result = lhs + rhs;
             update_add_flags(state, lhs, rhs, result);
             state.gpr[destination] = result;
             break;
-        case 0x29: // SUB
+        case 0x29:
             result = lhs - rhs;
             update_sub_flags(state, lhs, rhs, result);
             state.gpr[destination] = result;
             break;
-        case 0x31: // XOR
+        case 0x31:
             result = lhs ^ rhs;
             update_logic_flags(state, result);
             state.gpr[destination] = result;
             break;
-        case 0x39: // CMP (subtract for flags, discard result)
+        case 0x39:
             result = lhs - rhs;
             update_sub_flags(state, lhs, rhs, result);
             break;

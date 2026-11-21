@@ -14,6 +14,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Register-only 64-bit ADD, SUB, XOR, and CMP instructions.
 - Short JMP, JZ, and JNZ branches plus near 32-bit JZ/JNZ branches.
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
+- 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
+- Near relative CALL and RET with checked guest-stack access.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -29,11 +31,11 @@ ctest --test-dir build --output-on-failure
 
 ## Not implemented
 
-This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, memory-addressing execution, virtual memory, privilege model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
+This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, general memory-addressing execution, virtual memory, privilege model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
 
 ## Development direction
 
-1. Expand x86-64 decoding, including stack and memory instructions.
+1. Expand x86-64 decoding, including memory operands and immediate arithmetic.
 2. Build a mapped address-space model with page permissions.
 3. Add interrupts, scheduling, and system-call/platform abstractions.
 4. Research graphics command translation and console-specific interfaces using public documentation.

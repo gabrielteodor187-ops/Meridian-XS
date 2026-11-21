@@ -18,7 +18,7 @@ enum class StepResult {
 // the CPU backend. It is not a complete x86-64 implementation.
 class Interpreter {
 public:
-    [[nodiscard]] StepResult step(CpuState& state, const core::GuestMemory& memory) const noexcept;
+    [[nodiscard]] StepResult step(CpuState& state, core::GuestMemory& memory) const noexcept;
 };
 
 } // namespace meridian::cpu

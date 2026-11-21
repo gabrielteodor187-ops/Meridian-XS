@@ -64,7 +64,6 @@ void test_arithmetic_instructions() {
     constexpr std::uint64_t overflow_flag = 1ULL << 11U;
 
     meridian::core::GuestMemory memory{0x3000, 32};
-    // ADD RAX, RCX; SUB RAX, RCX; XOR RAX, RCX; CMP RAX, RCX
     const std::array<std::byte, 16> program{
         std::byte{0x48}, std::byte{0x01}, std::byte{0xc8},
         std::byte{0x48}, std::byte{0x29}, std::byte{0xc8},
@@ -104,12 +103,10 @@ void test_arithmetic_instructions() {
     require(interpreter.step(state, memory) == StepResult::Executed, "signed-overflow ADD should execute");
     require((state.rflags & overflow_flag) != 0, "signed overflow should set overflow flag");
 }
- 
 
 void test_guest_program_end_to_end() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x4000, 64};
-    // A tiny guest program: RAX = 7; RCX = 5; RAX += RCX; halt.
     const std::array<std::byte, 23> program{
         std::byte{0x48}, std::byte{0xb8},
         std::byte{0x07}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
@@ -139,18 +136,15 @@ void test_guest_program_end_to_end() {
     require(state.rip == 0x4018, "guest program should stop immediately after HLT");
 }
 
-
 void test_branch_instructions() {
     using meridian::cpu::StepResult;
     constexpr std::uint64_t zero_flag = 1ULL << 6U;
     meridian::core::GuestMemory memory{0x5000, 64};
     const std::array<std::byte, 17> program{
-        // JZ +2 (taken to 0x5004), then JMP +2 (to 0x5008).
         std::byte{0x74}, std::byte{0x02},
         std::byte{0x90}, std::byte{0x90},
         std::byte{0xeb}, std::byte{0x02},
         std::byte{0x90}, std::byte{0x90},
-        // JNZ +2 (not taken with ZF set), then near JZ +2 (taken).
         std::byte{0x75}, std::byte{0x02},
         std::byte{0x0f}, std::byte{0x84}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
@@ -169,9 +163,68 @@ void test_branch_instructions() {
     require(interpreter.step(state, memory) == StepResult::Executed && state.rip == 0x500a,
             "JNZ should fall through when ZF is set");
     require(interpreter.step(state, memory) == StepResult::Executed && state.rip == 0x5010,
-            "near JZ should take a signed 32-bit relative branch to HLT");
+            "near JZ should branch to the HLT instruction");
     require(interpreter.step(state, memory) == StepResult::Halted,
             "branch target should reach HLT");
+}
+
+void test_stack_and_call_instructions() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x6000, 0x100};
+    const std::array<std::byte, 43> program{
+        // MOV RAX, 0x123456789abcdef0
+        std::byte{0x48}, std::byte{0xb8},
+        std::byte{0xf0}, std::byte{0xde}, std::byte{0xbc}, std::byte{0x9a},
+        std::byte{0x78}, std::byte{0x56}, std::byte{0x34}, std::byte{0x12},
+        // PUSH RAX; MOV RAX, 0; POP RBX
+        std::byte{0x50},
+        std::byte{0x48}, std::byte{0xb8},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x5b},
+        // CALL function at 0x6020; return address is 0x601b.
+        std::byte{0xe8}, std::byte{0x06}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xf4},
+        std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90},
+        // Function: MOV RCX, 7; RET.
+        std::byte{0x48}, std::byte{0xb9},
+        std::byte{0x07}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xc3}
+    };
+    require(memory.write(0x6000, program), "stack test program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x6000;
+    state.gpr[4] = 0x6100;
+    const meridian::cpu::Interpreter interpreter{};
+
+    std::size_t executed = 0;
+    while (executed < 12) {
+        const auto result = interpreter.step(state, memory);
+        if (result == StepResult::Halted) break;
+        require(result == StepResult::Executed, "PUSH/POP/CALL/RET program should execute");
+        ++executed;
+    }
+
+    require(executed == 7, "stack program should execute seven instructions before HLT");
+    require(state.gpr[3] == 0x123456789abcdef0ULL, "POP RBX should restore the pushed RAX value");
+    require(state.gpr[1] == 7, "called function should update RCX");
+    require(state.gpr[4] == 0x6100, "PUSH/POP and CALL/RET should restore RSP");
+    require(state.rip == 0x601b, "RET should return to the instruction after CALL before HLT");
+}
+
+void test_stack_memory_fault_is_atomic() {
+    meridian::core::GuestMemory memory{0x7000, 32};
+    require(memory.write_le<std::uint8_t>(0x7000, 0x50), "PUSH opcode should be writable");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x7000;
+    state.gpr[0] = 123;
+    state.gpr[4] = 0x7000;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == meridian::cpu::StepResult::MemoryFault,
+            "PUSH outside mapped memory should report a memory fault");
+    require(state.rip == 0x7000 && state.gpr[4] == 0x7000,
+            "failed PUSH must leave RIP and RSP unchanged");
 }
 
 void test_cpu_state_reset() {
@@ -195,6 +248,8 @@ int main() {
         test_arithmetic_instructions();
         test_guest_program_end_to_end();
         test_branch_instructions();
+        test_stack_and_call_instructions();
+        test_stack_memory_fault_is_atomic();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
