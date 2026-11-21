@@ -5027,12 +5027,10 @@ void test_byte_mov_forms() {
         std::byte{0xc6}, std::byte{0x07}, std::byte{0x7a}, // mov byte [rdi], 7ah
         std::byte{0xc6} // truncated instruction should fault
     };
-    const std::array<std::byte, 3> immediate_memory_program{
-        std::byte{0xc6}, std::byte{0x47}, std::byte{0x01}
-    };
     require(memory.write(0x33c00, register_program), "byte MOV register program should load");
     require(memory.write(0x33c20, memory_program), "byte MOV memory program should load");
-    require(memory.write(0x33c40, immediate_memory_program), "byte MOV immediate memory program should load");
+    const std::array<std::byte, 2> truncated_program{std::byte{0xc6}, std::byte{0x07}};
+    require(memory.write(0x33dfe, truncated_program), "truncated byte MOV program should load");
     const meridian::cpu::Interpreter interpreter{};
     meridian::cpu::CpuState state{};
 
@@ -5071,7 +5069,7 @@ void test_byte_mov_forms() {
             memory.read_le<std::uint8_t>(0x33c80).value_or(0) == 0x7aU,
             "MOV r/m8,imm8 should write its immediate to memory");
 
-    state.rip = 0x33c40;
+    state.rip = 0x33dfe;
     state.gpr[7] = 0x33c80;
     require(interpreter.step(state, memory) == StepResult::MemoryFault,
             "truncated C6 immediate instruction should report a memory fault");
