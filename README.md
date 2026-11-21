@@ -33,7 +33,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
-- Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms, INVLPG, SWAPGS, a limited RDMSR/WRMSR bank, and basic SYSCALL/SYSRET transitions.
+- Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms, INVLPG, SWAPGS, a limited RDMSR/WRMSR bank, basic SYSCALL/SYSRET transitions, conservative CPUID leaves, RDTSC, and RDTSCP.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -224,3 +224,8 @@ Added a limited modeled MSR bank and privileged RDMSR/WRMSR execution. Supported
 ### v0.46.0 — SYSCALL/SYSRET and SWAPGS foundations
 
 Added basic 64-bit SYSCALL and SYSRET transitions using EFER.SCE, STAR, LSTAR, SFMASK, RCX, and R11. The model updates CPL and CS/SS selectors and validates canonical target addresses. Added privileged SWAPGS behavior using GS_BASE and KERNEL_GS_BASE. Tests cover a user-to-kernel-to-user round trip, flag masking/restoration, selector changes, and SWAPGS privilege checks. Full segment descriptor tables, interrupt/exception delivery, IOPL, and complete architectural SYSRET validation remain unimplemented.
+
+
+### v0.47.0 — CPUID and timestamp-counter instructions
+
+Added CPUID leaves 0, 1, 0x80000000, and 0x80000001 with a deliberately conservative synthetic Meridian-XS vendor profile. Only currently modeled TSC, MSR, CMOV, long-mode, NX, and SYSCALL capabilities are advertised; SIMD and other unimplemented features are not claimed. Added deterministic RDTSC and RDTSCP counters, including TSC_AUX and CR4.TSD privilege checks. This CPUID profile is not an Xbox/AMD hardware-identification profile.

@@ -2104,6 +2104,63 @@ void test_syscall_sysret_and_swapgs() {
             "SWAPGS should be privileged");
 }
 
+
+void test_cpuid_rdtsc_and_rdtscp() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x27000, 64};
+    const std::array<std::byte, 16> program{
+        // CPUID leaf 0; CPUID leaf 1; RDTSC; RDTSCP; HLT.
+        std::byte{0x0f}, std::byte{0xa2},
+        std::byte{0xb8}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00},
+        std::byte{0x0f}, std::byte{0xa2},
+        std::byte{0x0f}, std::byte{0x31},
+        std::byte{0x0f}, std::byte{0x01}, std::byte{0xf9},
+        std::byte{0xf4}, std::byte{0x90}
+    };
+    require(memory.write(0x27000, program), "CPUID/TSC program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x27000;
+    state.gpr[0] = 0;
+    state.tsc = 100;
+    state.tsc_aux = 0x1234;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CPUID leaf 0 should execute");
+    require(state.gpr[0] == 1 &&
+            state.gpr[1] == 0x6972654dU &&
+            state.gpr[3] == 0x6e616964U &&
+            state.gpr[2] == 0x20205358U,
+            "CPUID leaf 0 should return the Meridian-XS vendor and max leaf");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOV EAX,1 should execute");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CPUID leaf 1 should execute");
+    require((state.gpr[3] & ((1U << 4U) | (1U << 5U) | (1U << 15U))) ==
+                ((1U << 4U) | (1U << 5U) | (1U << 15U)),
+            "CPUID should advertise the implemented TSC/MSR/CMOV capabilities");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RDTSC should execute");
+    require(state.gpr[0] == 100 && state.gpr[2] == 0,
+            "RDTSC should return the current 64-bit guest TSC");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RDTSCP should execute");
+    require(state.gpr[0] == 101 && state.gpr[1] == 0x1234,
+            "RDTSCP should return TSC and TSC_AUX");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "CPUID/TSC program should reach HLT");
+
+    const std::array<std::byte, 2> rdtsc{std::byte{0x0f}, std::byte{0x31}};
+    require(memory.write(0x27020, rdtsc), "privileged RDTSC test should load");
+    meridian::cpu::CpuState restricted{};
+    restricted.rip = 0x27020;
+    restricted.cpl = 3;
+    restricted.control_registers[4] = 1ULL << 2U; // CR4.TSD
+    require(interpreter.step(restricted, memory) == StepResult::GeneralProtectionFault,
+            "CR4.TSD should restrict RDTSC outside CPL0");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2156,6 +2213,7 @@ int main() {
         test_control_register_moves_and_invlpg();
         test_rdmsr_wrmsr_and_privilege();
         test_syscall_sysret_and_swapgs();
+        test_cpuid_rdtsc_and_rdtscp();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

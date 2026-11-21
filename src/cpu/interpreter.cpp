@@ -297,6 +297,53 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        // CPUID: expose a conservative synthetic Meridian-XS profile.
+        if (second == 0xa2) {
+            const std::uint32_t leaf = static_cast<std::uint32_t>(state.gpr[0]);
+            const std::uint32_t subleaf = static_cast<std::uint32_t>(state.gpr[1]);
+            std::uint32_t eax = 0;
+            std::uint32_t ebx = 0;
+            std::uint32_t ecx = 0;
+            std::uint32_t edx = 0;
+            constexpr std::uint32_t vendor_ebx = 0x6972654dU; // "Meri"
+            constexpr std::uint32_t vendor_edx = 0x6e616964U; // "dian"
+            constexpr std::uint32_t vendor_ecx = 0x20205358U; // "XS  "
+            if (leaf == 0) {
+                eax = 1;
+                ebx = vendor_ebx;
+                edx = vendor_edx;
+                ecx = vendor_ecx;
+            } else if (leaf == 1) {
+                eax = 0x00000600U;
+                edx = (1U << 4U) | (1U << 5U) | (1U << 15U); // TSC, MSR, CMOV
+            } else if (leaf == 0x80000000U) {
+                eax = 0x80000001U;
+                ebx = vendor_ebx;
+                edx = vendor_edx;
+                ecx = vendor_ecx;
+            } else if (leaf == 0x80000001U) {
+                edx = (1U << 11U) | (1U << 20U) | (1U << 29U); // SYSCALL, NX, LM
+            }
+            (void)subleaf;
+            state.gpr[0] = eax;
+            state.gpr[1] = ebx;
+            state.gpr[2] = ecx;
+            state.gpr[3] = edx;
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
+        // RDTSC returns the deterministic guest TSC in EDX:EAX.
+        if (second == 0x31) {
+            if ((state.control_registers[4] & (1ULL << 2U)) != 0 && state.cpl != 0)
+                return StepResult::GeneralProtectionFault;
+            const std::uint64_t value = state.tsc++;
+            state.gpr[0] = static_cast<std::uint32_t>(value);
+            state.gpr[2] = static_cast<std::uint32_t>(value >> 32U);
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // SYSCALL / SYSRETQ: model the long-mode register and privilege transition.
         if (second == 0x05) {
             if ((state.efer & 1ULL) == 0 || !canonical_address(state.lstar))
@@ -352,6 +399,16 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if (second == 0x01) {
             std::uint8_t modrm = 0;
             if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if (modrm == 0xf9) { // RDTSCP
+                if ((state.control_registers[4] & (1ULL << 2U)) != 0 &&
+                    state.cpl != 0) return StepResult::GeneralProtectionFault;
+                const std::uint64_t value = state.tsc++;
+                state.gpr[0] = static_cast<std::uint32_t>(value);
+                state.gpr[2] = static_cast<std::uint32_t>(value >> 32U);
+                state.gpr[1] = static_cast<std::uint32_t>(state.tsc_aux);
+                state.rip = pc;
+                return StepResult::Executed;
+            }
             if (modrm == 0xf8) { // SWAPGS
                 if (state.cpl != 0) return StepResult::PrivilegeFault;
                 std::swap(state.gs_base, state.kernel_gs_base);
