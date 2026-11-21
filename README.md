@@ -6,6 +6,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 
 ## Implemented
 
+- Byte TEST operations: TEST r/m8,r8 (84) and TEST r/m8,imm8 (F6 /0), with register and supported memory operands; flags update without modifying operands.
+
 - Byte MOV operations: register/register and register/memory in both directions, MOV r8,imm8, and MOV r/m8,imm8, including correct legacy high-byte and REX low-byte register selection.
 
 - Byte register/register and register/memory ALU forms for ADD, OR, ADC, SBB, AND, SUB, XOR, and CMP in both operand directions, including legacy high-byte and REX low-byte register selection.
@@ -77,6 +79,11 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 4. Research graphics command translation and console-specific interfaces using public documentation.
 
 All implementation is intended to be original code based on public information. No proprietary SDKs, firmware, keys, or game data are included.
+
+
+### v0.93.0 — Byte TEST operations
+
+Added TEST r/m8,r8 (84) and TEST r/m8,imm8 (F6 /0) for register and supported memory operands. Both forms update logical status flags without modifying their operands. Added regression coverage for register and memory cases.
 
 
 ### v0.92.0 — Byte MOV register, memory, and immediate operations
