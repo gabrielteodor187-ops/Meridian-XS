@@ -1507,7 +1507,7 @@ void test_all_short_condition_codes() {
     }};
     const meridian::cpu::Interpreter interpreter{};
     for (const auto& item : cases) {
-        require(memory.write(0x1f000, std::span<const std::byte>{program}.subspan(1)),
+        require(memory.write(0x1f001, std::span<const std::byte>{program}.subspan(1)),
                 "condition-code branch body should remain available");
         const std::array<std::byte, 1> opcode_byte{static_cast<std::byte>(item.opcode)};
         require(memory.write(0x1f000, opcode_byte), "condition opcode should write");
@@ -1521,7 +1521,7 @@ void test_all_short_condition_codes() {
             std::cerr << "Condition opcode " << static_cast<unsigned>(item.opcode)
                       << " expected RIP " << expected_rip
                       << " but got " << state.rip
-                      << " with flags " << item.flags << '\\n';
+                      << " with flags " << item.flags << '\n';
             require(false, "short conditional branch should evaluate its condition flags");
         }
     }

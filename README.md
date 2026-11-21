@@ -155,3 +155,8 @@ Added all 16 SETcc condition-code operations for register byte destinations. The
 ### v0.37.1 — Conditional branch test diagnostics
 
 Improved the short-condition regression test failure output to identify the exact opcode and flag combination if a branch condition is evaluated incorrectly.
+
+
+### v0.37.2 — Branch test layout correction
+
+Corrected the conditional-branch test fixture so the displacement and branch body are written after the opcode byte rather than over it. Kept opcode/flag diagnostics for future regressions. No interpreter behavior changed in this patch.
