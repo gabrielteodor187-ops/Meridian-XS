@@ -2568,8 +2568,9 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
         const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
-        if (operation != 0 && operation != 1 && operation != 4 &&
-            operation != 5 && operation != 6 && operation != 7)
+        if (operation != 0 && operation != 1 && operation != 2 &&
+            operation != 3 && operation != 4 && operation != 5 &&
+            operation != 6 && operation != 7)
             return StepResult::UnsupportedInstruction;
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
@@ -2616,6 +2617,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             std::uint16_t result = 0;
             switch (operation) {
             case 0: result = static_cast<std::uint16_t>(lhs + rhs); update_add_flags16(state, lhs, rhs, result); break;
+            case 2: { const bool carry_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint16_t>(lhs + rhs + (carry_in ? 1U : 0U)); update_adc_flags16(state, lhs, rhs, carry_in, result); break; }
+            case 3: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint16_t>(lhs - rhs - (borrow_in ? 1U : 0U)); update_sbb_flags16(state, lhs, rhs, borrow_in, result); break; }
             case 1: result = static_cast<std::uint16_t>(lhs | rhs); update_logic_flags16(state, result); break;
             case 4: result = static_cast<std::uint16_t>(lhs & rhs); update_logic_flags16(state, result); break;
             case 5: result = static_cast<std::uint16_t>(lhs - rhs); update_sub_flags16(state, lhs, rhs, result); break;
@@ -2646,6 +2649,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             std::uint64_t result = 0;
             switch (operation) {
             case 0: result = lhs + rhs; update_add_flags(state, lhs, rhs, result); break;
+            case 2: { const bool carry_in = (state.rflags & flag_cf) != 0; result = lhs + rhs + (carry_in ? 1ULL : 0ULL); update_adc_flags(state, lhs, rhs, carry_in, result); break; }
+            case 3: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = lhs - rhs - (borrow_in ? 1ULL : 0ULL); update_sbb_flags(state, lhs, rhs, borrow_in, result); break; }
             case 1: result = lhs | rhs; update_logic_flags(state, result); break;
             case 4: result = lhs & rhs; update_logic_flags(state, result); break;
             case 5: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); break;
@@ -2671,6 +2676,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             std::uint32_t result = 0;
             switch (operation) {
             case 0: result = lhs + rhs; update_add_flags32(state, lhs, rhs, result); break;
+            case 2: { const bool carry_in = (state.rflags & flag_cf) != 0; result = lhs + rhs + (carry_in ? 1U : 0U); update_adc_flags32(state, lhs, rhs, carry_in, result); break; }
+            case 3: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = lhs - rhs - (borrow_in ? 1U : 0U); update_sbb_flags32(state, lhs, rhs, borrow_in, result); break; }
             case 1: result = lhs | rhs; update_logic_flags32(state, result); break;
             case 4: result = lhs & rhs; update_logic_flags32(state, result); break;
             case 5: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); break;
