@@ -182,3 +182,8 @@ Extended Group-1 ADD, OR, AND, SUB, XOR, and CMP immediate operations to memory 
 ### v0.41.0 — x86-64 page-table translation foundation
 
 Added a standalone four-level x86-64 page-table walker for 48-bit canonical virtual addresses. It handles 4 KiB pages and 2 MiB/1 GiB large-page entries, accumulates writable/user/NX permissions across levels, and models supervisor write bypass when CR0.WP is disabled. NXE handling and non-canonical address rejection are included. This walker is not yet connected to the CPU interpreter and does not implement TLBs, page-fault error codes, PCID, or the complete architectural reserved-bit checks.
+
+
+### v0.41.1 — Page-table test include fix
+
+Added the new page-table walker header to the core test translation unit and clarified the read-only page-entry mask expression. The page-walker implementation itself is unchanged.

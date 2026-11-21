@@ -1,5 +1,6 @@
 #include "meridian/core/guest_memory.hpp"
 #include "meridian/core/virtual_address_space.hpp"
+#include "meridian/core/x64_page_table_walker.hpp"
 #include "meridian/cpu/cpu_state.hpp"
 #include "meridian/cpu/interpreter.hpp"
 
@@ -1767,7 +1768,7 @@ void test_x64_page_table_walker() {
     require(physical.write_le<std::uint64_t>(0x4000, 0x8000 | present_rw_user),
             "writable page entry should restore");
     require(physical.write_le<std::uint64_t>(0x4000,
-                0x8000 | present_rw_user & ~0x2ULL),
+                0x8000 | (present_rw_user & ~0x2ULL)),
             "read-only page entry should update");
     require(!X64PageTableWalker::translate(
                 physical, 0x1000, 0x400123, X64MemoryAccess::Write),
