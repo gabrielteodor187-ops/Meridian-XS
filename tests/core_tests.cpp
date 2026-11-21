@@ -1102,6 +1102,45 @@ void test_mov_immediate_group_c7() {
             "C7 MOV test program should reach HLT");
 }
 
+
+void test_mov_immediate_c7_memory() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x17000, 0x200};
+    const std::array<std::byte, 17> program{
+        // MOV qword [RDI+8], -1; MOV dword [RDI+RCX*4+4], 0x12345678; HLT.
+        std::byte{0x48}, std::byte{0xc7}, std::byte{0x47}, std::byte{0x08},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xc7}, std::byte{0x44}, std::byte{0x8f}, std::byte{0x04},
+        std::byte{0x78}, std::byte{0x56}, std::byte{0x34}, std::byte{0x12},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x17000, program), "C7 memory MOV program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x17000;
+    state.gpr[7] = 0x17100;
+    state.gpr[1] = 2;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit C7 memory MOV should execute");
+    require(memory.read_le<std::uint64_t>(0x17108).value_or(0) ==
+                0xffffffffffffffffULL,
+            "64-bit C7 memory MOV should sign-extend imm32");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SIB-addressed 32-bit C7 memory MOV should execute");
+    require(memory.read_le<std::uint32_t>(0x1710c).value_or(0) == 0x12345678U,
+            "C7 memory MOV should support scaled-index addressing");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "C7 memory MOV program should reach HLT");
+
+    state.rip = 0x17008;
+    state.gpr[7] = 0x17200;
+    require(interpreter.step(state, memory) == StepResult::MemoryFault,
+            "C7 memory MOV outside guest RAM should fault");
+    require(state.rip == 0x17008,
+            "faulting C7 memory MOV must not advance RIP");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1127,6 +1166,7 @@ int main() {
         test_movzx_registers();
         test_movsx_registers();
         test_mov_immediate_group_c7();
+        test_mov_immediate_c7_memory();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

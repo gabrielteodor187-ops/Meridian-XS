@@ -82,3 +82,8 @@ Added register-only MOVSX from signed 8-bit and 16-bit sources to 32-bit or 64-b
 ### v0.25.0 — C7 immediate MOV register forms
 
 Added the register-direct C7 /0 forms: 32-bit destinations receive imm32 with zero-extension, while 64-bit destinations receive a sign-extended imm32. REX.B selects R8–R15. Memory-destination C7 forms are not yet implemented.
+
+
+### v0.26.0 — C7 immediate MOV memory forms
+
+Extended C7 /0 to memory destinations, including base-plus-displacement and SIB scaled-index addressing. Both 32-bit imm32 stores and 64-bit sign-extended imm32 stores are supported. Instruction immediates are fetched through the execute path and data writes use normal guest-memory permissions/bounds checks. RIP-relative and full x86 addressing coverage remain incomplete for this opcode.
