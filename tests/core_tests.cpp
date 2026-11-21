@@ -961,6 +961,39 @@ void test_lea_effective_address() {
             "LEA test program should reach HLT");
 }
 
+
+void test_movsxd_registers() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x13000, 16};
+    const std::array<std::byte, 10> program{
+        // MOVSXD R9, R8D; MOVSXD R10, R9D; MOVSXD R11, R8D; HLT.
+        std::byte{0x4d}, std::byte{0x63}, std::byte{0xc8},
+        std::byte{0x4d}, std::byte{0x63}, std::byte{0xd1},
+        std::byte{0x4d}, std::byte{0x63}, std::byte{0xd8},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x13000, program), "MOVSXD program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x13000;
+    state.gpr[8] = 0x1234567880000001ULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSXD into R9 should execute");
+    require(state.gpr[9] == 0xffffffff80000001ULL,
+            "MOVSXD should sign-extend the source's low 32 bits");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSXD from R9 into R10 should execute");
+    require(state.gpr[10] == 0xffffffff80000001ULL,
+            "MOVSXD should preserve the signed 32-bit value");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSXD with REX.R/B extended registers should execute");
+    require(state.gpr[11] == 0xffffffff80000001ULL,
+            "REX.R and REX.B should select the extended destination and source");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "MOVSXD test program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -982,6 +1015,7 @@ int main() {
         test_virtual_address_typed_access();
         test_interpreter_virtual_address_space();
         test_lea_effective_address();
+        test_movsxd_registers();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

@@ -62,3 +62,8 @@ The interpreter can now execute against either the original bounded guest-memory
 ### v0.21.0 — LEA effective-address calculation
 
 Added 32-bit and 64-bit LEA for the supported ModRM/SIB addressing forms, including base-plus-index scaling, signed displacements, RIP-relative addressing, and REX.R/X/B extended registers. LEA computes an address without reading guest memory. Automated tests cover SIB, RIP-relative, and extended-register cases. The instruction decoder remains intentionally incomplete.
+
+
+### v0.22.0 — MOVSXD register form
+
+Added the REX.W register-to-register form of MOVSXD, including REX.R/REX.B extended registers and correct sign extension from the source's low 32 bits into a 64-bit destination. Memory-source MOVSXD and the broader opcode family remain future work.

@@ -307,6 +307,24 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     }
 
 
+
+    // MOVSXD r64, r/m32. This subset currently supports register operands.
+    if (rex_w && opcode == 0x63) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
+        const std::size_t destination = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                        (rex_r ? 8U : 0U);
+        const std::size_t source = static_cast<std::size_t>(modrm & 7U) +
+                                   (rex_b ? 8U : 0U);
+        const auto value = static_cast<std::int32_t>(
+            static_cast<std::uint32_t>(state.gpr[source]));
+        state.gpr[destination] = static_cast<std::uint64_t>(
+            static_cast<std::int64_t>(value));
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // LEA r32/r64, m: calculate the effective address without reading memory.
     if (opcode == 0x8d) {
         std::uint8_t modrm = 0;
