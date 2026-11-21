@@ -3157,6 +3157,46 @@ void test_sse_bitwise_and_movemask_family() {
             "MOVMSKPD should collect the sign bit of each 64-bit lane");
 }
 
+
+void test_ldmxcsr_stmxcsr() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31400, 0x200};
+    const std::array<std::byte, 3> load_mxcsr{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x10}
+    };
+    const std::array<std::byte, 3> store_mxcsr{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x18}
+    };
+    require(memory.write(0x31400, load_mxcsr), "LDMXCSR instruction should load");
+    require(memory.write(0x31410, store_mxcsr), "STMXCSR instruction should load");
+    require(memory.write_le<std::uint32_t>(0x31480, 0x3f80U),
+            "MXCSR source value should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31400;
+    state.gpr[0] = 0x31480;
+    state.control_registers[4] = 1ULL << 9U;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.mxcsr == 0x3f80U,
+            "LDMXCSR should load a valid MXCSR value");
+    state.rip = 0x31410;
+    state.gpr[0] = 0x31484;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "STMXCSR should store the current MXCSR value");
+    require(memory.read_le<std::uint32_t>(0x31484).value_or(0) == 0x3f80U,
+            "STMXCSR should write the exact 32-bit control/status value");
+
+    require(memory.write_le<std::uint32_t>(0x31480, 0xffffffffU),
+            "invalid MXCSR value should load into test memory");
+    state.rip = 0x31400;
+    state.gpr[0] = 0x31480;
+    const auto old_mxcsr = state.mxcsr;
+    require(interpreter.step(state, memory) == StepResult::GeneralProtectionFault,
+            "LDMXCSR should reject reserved bits outside MXCSR_MASK");
+    require(state.mxcsr == old_mxcsr && state.rip == 0x31400,
+            "invalid LDMXCSR should not partially update guest state");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3224,6 +3264,7 @@ int main() {
         test_sse_packed_and_scalar_moves();
         test_sse_floating_arithmetic_subset();
         test_sse_bitwise_and_movemask_family();
+        test_ldmxcsr_stmxcsr();
 
         test_cpu_state_reset();
         test_interpreter();

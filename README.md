@@ -38,7 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
-- FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state).
+- FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state), plus LDMXCSR/STMXCSR with MXCSR_MASK validation.
 - Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers; MOVUPS/MOVUPD/MOVAPS/MOVAPD packed moves; MOVSS/MOVSD scalar moves with appropriate upper-lane behavior.
 - Initial floating-point SIMD arithmetic: ADDPS/ADDPD/ADDSS/ADDSD, SUB, MUL, and DIV variants with packed/scalar lane handling.
 - Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB/MOVMSKPS/MOVMSKPD, AND/ANDN/OR/XOR packed bitwise operations, and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
@@ -377,3 +377,8 @@ Corrected the ADDSS test to use the original left-hand vector rather than the al
 ### v0.63.0 — SSE packed bitwise operations and sign masks
 
 Added ANDPS/ANDPD, ANDNPS/ANDNPD, ORPS/ORPD alongside the existing XOR operations, and MOVMSKPS/MOVMSKPD to extract packed lane sign bits into a GPR. Tests cover ANDNPS semantics and 32-/64-bit movemask extraction. Floating-point exception and MXCSR behavior remain incomplete.
+
+
+### v0.64.0 — LDMXCSR/STMXCSR
+
+Added memory-form LDMXCSR and STMXCSR to load/store the guest MXCSR register. LDMXCSR rejects reserved bits according to the modeled MXCSR_MASK and leaves state unchanged on failure. Tests cover valid load/store and invalid reserved-bit rejection. Floating-point SIMD operations still use the host's default rounding behavior and do not yet update guest MXCSR exception flags.

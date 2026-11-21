@@ -721,12 +721,29 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
             const std::uint8_t operation =
                 static_cast<std::uint8_t>((modrm >> 3U) & 7U);
-            if ((modrm >> 6U) == 3U || (operation != 0U && operation != 1U))
+            if ((modrm >> 6U) == 3U)
                 return StepResult::UnsupportedInstruction;
             std::uint64_t address = 0;
             if (!decode_effective_address(state, memory, pc, modrm,
                                           rex_b, rex_x, 0, address))
                 return StepResult::MemoryFault;
+            if (operation == 2U) { // LDMXCSR m32
+                const auto value = memory.template read_le<std::uint32_t>(address);
+                if (!value) return StepResult::MemoryFault;
+                if ((*value & ~state.mxcsr_mask) != 0)
+                    return StepResult::GeneralProtectionFault;
+                state.mxcsr = *value;
+                state.rip = pc;
+                return StepResult::Executed;
+            }
+            if (operation == 3U) { // STMXCSR m32
+                if (!memory.template write_le<std::uint32_t>(address, state.mxcsr))
+                    return StepResult::MemoryFault;
+                state.rip = pc;
+                return StepResult::Executed;
+            }
+            if (operation != 0U && operation != 1U)
+                return StepResult::UnsupportedInstruction;
             if ((address & 0xfU) != 0)
                 return StepResult::GeneralProtectionFault;
 
