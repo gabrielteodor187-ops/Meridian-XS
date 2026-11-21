@@ -1844,6 +1844,7 @@ void test_interpreter_through_x64_page_tables() {
     require(physical.write_le<std::uint64_t>(
                 0x4000, 0x8000 | present_rw | (1ULL << 63U)),
             "paged CPU code PTE should become NX");
+    memory.invalidate_page(0x400000);
     meridian::cpu::CpuState nx_state{};
     nx_state.rip = 0x400000;
     require(interpreter.step(nx_state, memory) == StepResult::MemoryFault,
@@ -1851,8 +1852,10 @@ void test_interpreter_through_x64_page_tables() {
 
     require(physical.write_le<std::uint64_t>(0x4000, 0x8000 | present_rw),
             "paged CPU code PTE should restore execute permission");
+    memory.invalidate_page(0x400000);
     require(physical.write_le<std::uint64_t>(0x4008, 0x9000 | 0x1ULL),
             "paged CPU data PTE should become read-only");
+    memory.invalidate_page(0x401000);
     const std::array<std::byte, 1> replacement{std::byte{0x2a}};
     require(!memory.write(0x401000, replacement),
             "paged CPU backend should reject writes to a read-only page");

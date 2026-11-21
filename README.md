@@ -198,3 +198,8 @@ Added X64PagedMemory, a virtual-memory backend that translates each CPU fetch/re
 ### v0.43.0 — Software TLB and invalidation
 
 Added a small direct-mapped 64-entry translation cache to X64PagedMemory. Cached 4 KiB virtual-page translations retain the effective RW/US/NX permissions from the full page walk. Added INVLPG-style single-page invalidation, full TLB flush, and paging-context updates that flush when CR3 or permission mode changes. Tests verify stale cached mappings persist until invalidated and that invalidation exposes a remapped physical page. This is a simple functional TLB model; it does not model multi-core shootdowns, global pages, PCID, or hardware replacement policy.
+
+
+### v0.43.1 — TLB permission-test invalidation
+
+Updated the paging integration test to explicitly invalidate cached code/data translations after modifying their page-table entries. This reflects x86 TLB behavior: page-table memory writes do not automatically invalidate existing translations.
