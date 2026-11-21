@@ -3265,6 +3265,64 @@ void test_sse_compare_predicates() {
             "CMPSS should write an all-ones low lane and preserve upper bits");
 }
 
+
+void test_sse_sqrt_min_max_subset() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31600, 0x100};
+    const std::array<std::byte, 4> sqrtps{
+        std::byte{0x0f}, std::byte{0x51}, std::byte{0xc1}, std::byte{0xf4}
+    };
+    require(memory.write(0x31600, sqrtps), "SQRTPS instruction should load");
+    meridian::cpu::CpuState sqrt_state{};
+    sqrt_state.rip = 0x31600;
+    sqrt_state.control_registers[4] = 1ULL << 9U;
+    const std::array<float, 4> roots{4.0F, 9.0F, 16.0F, 25.0F};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        const auto bits = std::bit_cast<std::uint32_t>(roots[lane]);
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            sqrt_state.xmm[1][lane * 4U + byte] =
+                static_cast<std::byte>((bits >> (byte * 8U)) & 0xffU);
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(sqrt_state, memory) == StepResult::Executed,
+            "SQRTPS should execute");
+    const std::array<float, 4> expected_roots{2.0F, 3.0F, 4.0F, 5.0F};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        std::uint32_t bits = 0;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            bits |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(sqrt_state.xmm[0][lane * 4U + byte]))
+                << (byte * 8U);
+        require(std::bit_cast<float>(bits) == expected_roots[lane],
+                "SQRTPS should calculate each packed square root");
+    }
+
+    const std::array<std::byte, 5> minss{
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0x5d},
+        std::byte{0xc1}, std::byte{0xf4}
+    };
+    require(memory.write(0x31620, minss), "MINSS instruction should load");
+    meridian::cpu::CpuState min_state{};
+    min_state.rip = 0x31620;
+    min_state.control_registers[4] = 1ULL << 9U;
+    const auto five = std::bit_cast<std::uint32_t>(5.0F);
+    const auto three = std::bit_cast<std::uint32_t>(3.0F);
+    for (std::size_t byte = 0; byte < 4; ++byte) {
+        min_state.xmm[0][byte] = static_cast<std::byte>((five >> (byte * 8U)) & 0xffU);
+        min_state.xmm[1][byte] = static_cast<std::byte>((three >> (byte * 8U)) & 0xffU);
+    }
+    min_state.xmm[0][4] = std::byte{0x77};
+    require(interpreter.step(min_state, memory) == StepResult::Executed,
+            "MINSS should execute");
+    std::uint32_t min_bits = 0;
+    for (std::size_t byte = 0; byte < 4; ++byte)
+        min_bits |= static_cast<std::uint32_t>(
+            std::to_integer<unsigned char>(min_state.xmm[0][byte])) << (byte * 8U);
+    require(std::bit_cast<float>(min_bits) == 3.0F &&
+            min_state.xmm[0][4] == std::byte{0x77},
+            "MINSS should select the lower scalar and preserve upper bits");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3334,6 +3392,7 @@ int main() {
         test_sse_bitwise_and_movemask_family();
         test_ldmxcsr_stmxcsr();
         test_sse_compare_predicates();
+        test_sse_sqrt_min_max_subset();
 
         test_cpu_state_reset();
         test_interpreter();

@@ -486,7 +486,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         const bool fp_bitwise = second == 0x54 || second == 0x55 ||
                                 second == 0x56 || second == 0x57;
         const bool floating_arithmetic =
-            second == 0x58 || second == 0x5c || second == 0x59 || second == 0x5e;
+            second == 0x58 || second == 0x5c || second == 0x59 || second == 0x5e ||
+            second == 0x51 || second == 0x5d || second == 0x5f;
         const bool shuffle_pshufd = second == 0x70 && operand_size_override &&
                                     !prefix_f3 && !prefix_f2;
         const bool shuffle_shufps = second == 0xc6 && !operand_size_override &&
@@ -660,7 +661,10 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                         const double lhs = std::bit_cast<double>(lhs_bits);
                         const double rhs = std::bit_cast<double>(rhs_bits);
                         double result = 0.0;
-                        if (second == 0x58) result = lhs + rhs;
+                        if (second == 0x51) result = std::sqrt(rhs);
+                        else if (second == 0x5d) result = lhs < rhs ? lhs : rhs;
+                        else if (second == 0x5f) result = lhs > rhs ? lhs : rhs;
+                        else if (second == 0x58) result = lhs + rhs;
                         else if (second == 0x5c) result = lhs - rhs;
                         else if (second == 0x59) result = lhs * rhs;
                         else result = lhs / rhs;
@@ -685,7 +689,10 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                         const float lhs = std::bit_cast<float>(lhs_bits);
                         const float rhs = std::bit_cast<float>(rhs_bits);
                         float result = 0.0F;
-                        if (second == 0x58) result = lhs + rhs;
+                        if (second == 0x51) result = std::sqrt(rhs);
+                        else if (second == 0x5d) result = lhs < rhs ? lhs : rhs;
+                        else if (second == 0x5f) result = lhs > rhs ? lhs : rhs;
+                        else if (second == 0x58) result = lhs + rhs;
                         else if (second == 0x5c) result = lhs - rhs;
                         else if (second == 0x59) result = lhs * rhs;
                         else result = lhs / rhs;
