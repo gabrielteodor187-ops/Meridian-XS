@@ -4557,6 +4557,122 @@ void test_16bit_register_arithmetic() {
             "16-bit SUB should wrap AX and preserve the upper 48 bits");
 }
 
+
+void test_adc_sbb_register_and_memory_forms() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x34000, 0x200};
+    const std::array<std::byte, 16> register_program{
+        // ADC/SBB AX,CX; ADC/SBB EAX,ECX; ADC/SBB RAX,RCX.
+        std::byte{0x66}, std::byte{0x11}, std::byte{0xc8},
+        std::byte{0x66}, std::byte{0x19}, std::byte{0xc8},
+        std::byte{0x11}, std::byte{0xc8},
+        std::byte{0x19}, std::byte{0xc8},
+        std::byte{0x48}, std::byte{0x11}, std::byte{0xc8},
+        std::byte{0x48}, std::byte{0x19}, std::byte{0xc8}
+    };
+    const std::array<std::byte, 24> memory_program{
+        // ADC/SBB word, dword, and qword [RDI+disp8], CX/ECX/RCX.
+        std::byte{0x66}, std::byte{0x11}, std::byte{0x4f}, std::byte{0x02},
+        std::byte{0x66}, std::byte{0x19}, std::byte{0x4f}, std::byte{0x02},
+        std::byte{0x11}, std::byte{0x4f}, std::byte{0x04},
+        std::byte{0x19}, std::byte{0x4f}, std::byte{0x04},
+        std::byte{0x48}, std::byte{0x11}, std::byte{0x4f}, std::byte{0x08},
+        std::byte{0x48}, std::byte{0x19}, std::byte{0x4f}, std::byte{0x08},
+        std::byte{0xf4}, std::byte{0x90}
+    };
+    require(memory.write(0x34000, register_program),
+            "ADC/SBB register program should load");
+    require(memory.write(0x34040, memory_program),
+            "ADC/SBB memory program should load");
+
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState state{};
+    constexpr std::uint64_t carry_flag = 1ULL;
+
+    state.rip = 0x34000;
+    state.gpr[0] = 0x112233445566ffffULL;
+    state.gpr[1] = 0;
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x1122334455660000ULL &&
+            (state.rflags & carry_flag) != 0,
+            "16-bit ADC should consume carry and preserve upper register bits");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x112233445566ffffULL &&
+            (state.rflags & carry_flag) != 0,
+            "16-bit SBB should consume borrow and preserve upper register bits");
+
+    state.rip = 0x34006;
+    state.gpr[0] = 0xffffffffULL;
+    state.gpr[1] = 0;
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0 && (state.rflags & carry_flag) != 0,
+            "32-bit ADC should wrap and set carry");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0xffffffffULL && (state.rflags & carry_flag) != 0,
+            "32-bit SBB should wrap and set borrow");
+
+    state.rip = 0x3400a;
+    state.gpr[0] = 0xffffffffffffffffULL;
+    state.gpr[1] = 0;
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0 && (state.rflags & carry_flag) != 0,
+            "64-bit ADC should wrap and set carry");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0xffffffffffffffffULL &&
+            (state.rflags & carry_flag) != 0,
+            "64-bit SBB should wrap and set borrow");
+
+    state.rip = 0x34040;
+    state.gpr[7] = 0x34100;
+    state.gpr[1] = 0;
+    require(memory.write_le<std::uint16_t>(0x34102, 0xffffU),
+            "16-bit ADC memory target should initialize");
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x34102).value_or(1) == 0,
+            "16-bit memory ADC should store the carry-aware result");
+    require(memory.write_le<std::uint16_t>(0x34102, 0),
+            "16-bit SBB memory target should reset");
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x34102).value_or(0) == 0xffffU,
+            "16-bit memory SBB should store the borrow-aware result");
+
+    state.rip = 0x34048;
+    state.gpr[1] = 0;
+    require(memory.write_le<std::uint32_t>(0x34104, 0xffffffffU),
+            "32-bit ADC memory target should initialize");
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint32_t>(0x34104).value_or(1) == 0,
+            "32-bit memory ADC should store the carry-aware result");
+    require(memory.write_le<std::uint32_t>(0x34104, 0),
+            "32-bit SBB memory target should reset");
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint32_t>(0x34104).value_or(0) == 0xffffffffU,
+            "32-bit memory SBB should store the borrow-aware result");
+
+    state.rip = 0x3404e;
+    state.gpr[1] = 0;
+    require(memory.write_le<std::uint64_t>(0x34108, 0xffffffffffffffffULL),
+            "64-bit ADC memory target should initialize");
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint64_t>(0x34108).value_or(1) == 0,
+            "64-bit memory ADC should store the carry-aware result");
+    require(memory.write_le<std::uint64_t>(0x34108, 0),
+            "64-bit SBB memory target should reset");
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint64_t>(0x34108).value_or(1) ==
+                0xffffffffffffffffULL,
+            "64-bit memory SBB should store the borrow-aware result");
+}
+
 void test_16bit_group1_immediates() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x33700, 0x100};
@@ -4695,6 +4811,7 @@ int main() {
         test_shl_shr_sar_group2();
         test_cmovcc_and_setcc();
         test_16bit_register_arithmetic();
+        test_adc_sbb_register_and_memory_forms();
         test_16bit_group1_immediates();
 
         test_cpu_state_reset();
