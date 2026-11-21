@@ -1199,6 +1199,47 @@ void test_c7_memory_write_permissions_in_virtual_space() {
             "rejected C7 store must not modify read-only backing memory");
 }
 
+
+void test_c7_cross_page_permission_fault_is_atomic() {
+    using meridian::core::PagePermissions;
+    using meridian::core::VirtualAddressSpace;
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory backing{0x73000, 3 * VirtualAddressSpace::page_size};
+    VirtualAddressSpace space{};
+    require(space.map(0xa10000, backing, 0x73000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, false, true}),
+            "C7 atomicity code page should map");
+    require(space.map(0xb10000, backing, 0x74000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, true, false}),
+            "first C7 data page should be writable");
+    require(space.map(0xb11000, backing, 0x75000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, false, false}),
+            "second C7 data page should be read-only");
+    const std::array<std::byte, 7> program{
+        // MOV qword [RDI], sign-extended 0x12345678; crosses the page boundary.
+        std::byte{0x48}, std::byte{0xc7}, std::byte{0x07},
+        std::byte{0x78}, std::byte{0x56}, std::byte{0x34}, std::byte{0x12}
+    };
+    require(backing.write(0x73000, program), "C7 atomicity program should load");
+    require(backing.write_le<std::uint32_t>(0x74ffc, 0xaabbccddU),
+            "first-page sentinel should initialize");
+    require(backing.write_le<std::uint32_t>(0x75000, 0x55667788U),
+            "second-page sentinel should initialize");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0xa10000;
+    state.gpr[7] = 0xb10ffc;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, space) == StepResult::MemoryFault,
+            "cross-page C7 store must fault when its second page is read-only");
+    require(state.rip == 0xa10000,
+            "cross-page C7 permission fault must leave RIP unchanged");
+    require(backing.read_le<std::uint32_t>(0x74ffc).value_or(0) == 0xaabbccddU,
+            "cross-page C7 fault must not partially modify the writable first page");
+    require(backing.read_le<std::uint32_t>(0x75000).value_or(0) == 0x55667788U,
+            "cross-page C7 fault must preserve the read-only second page");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1227,6 +1268,7 @@ int main() {
         test_mov_immediate_c7_memory();
         test_mov_immediate_c7_rip_relative();
         test_c7_memory_write_permissions_in_virtual_space();
+        test_c7_cross_page_permission_fault_is_atomic();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

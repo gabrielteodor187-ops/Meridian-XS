@@ -97,3 +97,8 @@ Added RIP-relative addressing for C7 memory destinations. The effective address 
 ### v0.28.0 — C7 virtual-memory permission coverage
 
 Added an end-to-end test for C7 immediate stores through the CPU's virtual-address-space overload. A write to a read-only mapped data page must return MemoryFault, leave RIP unchanged, and preserve backing memory. This validates the new immediate-store path against the same page permissions used by ordinary CPU memory operations.
+
+
+### v0.29.0 — Atomic cross-page immediate-store validation
+
+Added a regression test for a 64-bit C7 store that crosses from a writable virtual page into a read-only page. The operation must fault before changing either page, proving that the virtual-address-space write validation prevents partial stores on permission failures.
