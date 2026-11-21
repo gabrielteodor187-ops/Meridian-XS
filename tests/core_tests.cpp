@@ -5126,6 +5126,45 @@ void test_byte_test_instructions() {
             "TEST r/m8,imm8 memory form should not write its operand");
 }
 
+void test_wide_test_memory_operands() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33f00, 0x100};
+    const std::array<std::byte, 3> word_program{
+        std::byte{0x66}, std::byte{0x85}, std::byte{0x0f}
+    };
+    const std::array<std::byte, 2> dword_program{
+        std::byte{0x85}, std::byte{0x0f}
+    };
+    const std::array<std::byte, 3> qword_program{
+        std::byte{0x48}, std::byte{0x85}, std::byte{0x0f}
+    };
+    require(memory.write(0x33f00, word_program), "word TEST memory program should load");
+    require(memory.write(0x33f10, dword_program), "dword TEST memory program should load");
+    require(memory.write(0x33f20, qword_program), "qword TEST memory program should load");
+    require(memory.write_le<std::uint64_t>(0x33f80, 0x00000000000000f0ULL),
+            "wide TEST memory operand should initialize");
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState state{};
+    state.gpr[7] = 0x33f80;
+    state.gpr[1] = 0x0f;
+
+    state.rip = 0x33f00;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.rflags & (1ULL << 6U)) != 0 &&
+            memory.read_le<std::uint64_t>(0x33f80).value_or(0) == 0xf0ULL,
+            "16-bit TEST memory form should set flags without writing memory");
+    state.rip = 0x33f10;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.rflags & (1ULL << 6U)) != 0 &&
+            memory.read_le<std::uint64_t>(0x33f80).value_or(0) == 0xf0ULL,
+            "32-bit TEST memory form should set flags without writing memory");
+    state.rip = 0x33f20;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.rflags & (1ULL << 6U)) != 0 &&
+            memory.read_le<std::uint64_t>(0x33f80).value_or(0) == 0xf0ULL,
+            "64-bit TEST memory form should set flags without writing memory");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -5227,6 +5266,7 @@ int main() {
         test_byte_register_memory_alu_forms();
         test_byte_mov_forms();
         test_byte_test_instructions();
+        test_wide_test_memory_operands();
 
         test_cpu_state_reset();
         test_interpreter();
