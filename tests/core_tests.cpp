@@ -4256,6 +4256,62 @@ void test_movzx_movsx_byte_word_sources() {
             "16-bit MOVZX destination should preserve upper GPR bits");
 }
 
+
+void test_imul_register_and_immediate_forms() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33300, 0x100};
+    const std::array<std::byte, 4> imul64{
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0xaf}, std::byte{0xc1}
+    };
+    const std::array<std::byte, 4> imul_imm8{
+        std::byte{0x6b}, std::byte{0xc1}, std::byte{0xfe}, std::byte{0xf4}
+    };
+    const std::array<std::byte, 6> imul_imm32{
+        std::byte{0x69}, std::byte{0xc1}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}
+    };
+    require(memory.write(0x33300, imul64), "IMUL 64-bit register form should load");
+    require(memory.write(0x33310, imul_imm8), "IMUL signed imm8 form should load");
+    require(memory.write(0x33320, imul_imm32), "IMUL imm32 form should load");
+    const meridian::cpu::Interpreter interpreter{};
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x33300;
+    state.gpr[0] = static_cast<std::uint64_t>(-7LL);
+    state.gpr[1] = 6;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == static_cast<std::uint64_t>(-42LL),
+            "IMUL RAX,RCX should compute a signed 64-bit product");
+    require((state.rflags & ((1ULL << 0U) | (1ULL << 11U))) == 0,
+            "IMUL should clear CF/OF when the product fits");
+
+    meridian::cpu::CpuState immediate{};
+    immediate.rip = 0x33310;
+    immediate.gpr[0] = 5;
+    immediate.gpr[1] = 7;
+    require(interpreter.step(immediate, memory) == StepResult::Executed &&
+            immediate.gpr[0] == 0xfffffff2ULL,
+            "IMUL EAX,ECX,imm8 should sign-extend -2 and zero-extend the 32-bit result");
+
+    meridian::cpu::CpuState overflow{};
+    overflow.rip = 0x33300;
+    overflow.gpr[0] = 0x7fffffffffffffffULL;
+    overflow.gpr[1] = 2;
+    require(interpreter.step(overflow, memory) == StepResult::Executed &&
+            overflow.gpr[0] == 0xfffffffffffffffeULL,
+            "overflowing IMUL should retain the low 64-bit product");
+    require((overflow.rflags & ((1ULL << 0U) | (1ULL << 11U))) ==
+                ((1ULL << 0U) | (1ULL << 11U)),
+            "overflowing IMUL should set CF and OF");
+
+    meridian::cpu::CpuState imm32{};
+    imm32.rip = 0x33320;
+    imm32.gpr[1] = 7;
+    require(interpreter.step(imm32, memory) == StepResult::Executed &&
+            imm32.gpr[0] == 0xfffffff9ULL,
+            "IMUL EAX,ECX,imm32 should multiply by signed -1");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4346,6 +4402,7 @@ int main() {
         test_indirect_call_jump_and_push_group();
         test_lea_and_movsxd_addressing();
         test_movzx_movsx_byte_word_sources();
+        test_imul_register_and_immediate_forms();
 
         test_cpu_state_reset();
         test_interpreter();

@@ -18,7 +18,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
 - Near relative CALL and RET with checked guest-stack access; indirect register/memory CALL and JMP plus FF-group PUSH r/m64.
-- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation, MOVSXD r64,r/m32, and MOVZX/MOVSX byte/word source forms.
+- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation, MOVSXD r64,r/m32, MOVZX/MOVSX byte/word source forms, and signed two-/three-operand IMUL forms.
 - REX.R/REX.B extension for memory MOV register and base selection.
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
@@ -494,3 +494,8 @@ Corrected the synthetic indirect CALL/PUSH test stack addresses to lie inside it
 ### v0.80.0 — MOVZX/MOVSX byte and word forms
 
 Added MOVZX/MOVSX from 8-/16-bit register or memory sources into 16-/32-/64-bit GPR destinations, including legacy AH/CH/DH/BH selection when no REX prefix is present and SPL/BPL/SIL/DIL selection when REX is present. Tests cover high-byte/low-byte register rules, signed extension, memory operands, and 16-bit destination preservation.
+
+
+### v0.81.0 — Signed IMUL forms
+
+Added two-operand IMUL r16/32/64,r/m and immediate IMUL forms using imm8 or imm16/imm32. Results are truncated to the destination width, 32-bit writes zero-extend, 16-bit writes preserve upper register bits, and CF/OF report signed overflow. The 64-bit overflow check avoids signed-overflow undefined behavior. Tests cover negative products, immediate sign extension, and CF/OF overflow behavior.

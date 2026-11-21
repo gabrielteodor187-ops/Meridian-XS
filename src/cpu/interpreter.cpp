@@ -158,6 +158,39 @@ void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
 }
 
 
+struct SignedMultiplyResult {
+    std::uint64_t value{0};
+    bool overflow{false};
+};
+
+SignedMultiplyResult signed_multiply(std::uint64_t lhs, std::uint64_t rhs,
+                                     std::size_t width) noexcept {
+    if (width == 8U) {
+        const bool negative = ((lhs >> 63U) != 0) != ((rhs >> 63U) != 0);
+        const std::uint64_t abs_lhs = (lhs >> 63U) != 0 ? (~lhs + 1U) : lhs;
+        const std::uint64_t abs_rhs = (rhs >> 63U) != 0 ? (~rhs + 1U) : rhs;
+        const std::uint64_t limit = negative ? (1ULL << 63U) : 0x7fffffffffffffffULL;
+        const bool overflow = abs_lhs != 0 && abs_rhs > limit / abs_lhs;
+        return {lhs * rhs, overflow};
+    }
+    const std::int64_t a = width == 2U
+        ? static_cast<std::int16_t>(lhs)
+        : static_cast<std::int32_t>(lhs);
+    const std::int64_t b = width == 2U
+        ? static_cast<std::int16_t>(rhs)
+        : static_cast<std::int32_t>(rhs);
+    const std::int64_t product = a * b;
+    const std::int64_t minimum = width == 2U
+        ? std::numeric_limits<std::int16_t>::min()
+        : std::numeric_limits<std::int32_t>::min();
+    const std::int64_t maximum = width == 2U
+        ? std::numeric_limits<std::int16_t>::max()
+        : std::numeric_limits<std::int32_t>::max();
+    const std::uint64_t mask = width == 2U ? 0xffffULL : 0xffffffffULL;
+    return {static_cast<std::uint64_t>(product) & mask,
+            product < minimum || product > maximum};
+}
+
 bool canonical_address(std::uint64_t address) noexcept {
     const std::uint64_t upper = address >> 48U;
     const bool sign = ((address >> 47U) & 1U) != 0;
@@ -882,6 +915,72 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    // Two/three-operand IMUL with signed immediate operands.
+    if (opcode == 0x69 || opcode == 0x6b) {
+        if (prefix_f3 || prefix_f2) return StepResult::UnsupportedInstruction;
+        const std::size_t width = rex_w ? 8U : (operand_size_override ? 2U : 4U);
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::size_t destination =
+            static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+        std::uint64_t source = 0;
+        std::uint64_t address = 0;
+        if ((modrm >> 6U) == 3U) {
+            const std::size_t source_register =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            source = state.gpr[source_register];
+        } else {
+            const std::size_t immediate_size = opcode == 0x6b ? 1U :
+                                               (width == 2U ? 2U : 4U);
+            if (!decode_effective_address(state, memory, pc, modrm,
+                                          rex_b, rex_x, immediate_size, address))
+                return StepResult::MemoryFault;
+            if (width == 2U) {
+                const auto value = memory.template read_le<std::uint16_t>(address);
+                if (!value) return StepResult::MemoryFault;
+                source = *value;
+            } else if (width == 4U) {
+                const auto value = memory.template read_le<std::uint32_t>(address);
+                if (!value) return StepResult::MemoryFault;
+                source = *value;
+            } else {
+                const auto value = memory.template read_le<std::uint64_t>(address);
+                if (!value) return StepResult::MemoryFault;
+                source = *value;
+            }
+        }
+        std::uint64_t immediate = 0;
+        if (opcode == 0x6b) {
+            std::uint8_t raw = 0;
+            if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
+            immediate = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(static_cast<std::int8_t>(raw)));
+        } else if (width == 2U) {
+            std::uint16_t raw = 0;
+            if (!fetch_le(memory, pc, raw)) return StepResult::MemoryFault;
+            immediate = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(static_cast<std::int16_t>(raw)));
+        } else {
+            std::uint32_t raw = 0;
+            if (!fetch_le(memory, pc, raw)) return StepResult::MemoryFault;
+            immediate = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(static_cast<std::int32_t>(raw)));
+        }
+        const std::uint64_t mask = width == 8U ? UINT64_MAX :
+                                   width == 4U ? 0xffffffffULL : 0xffffULL;
+        const auto product = signed_multiply(source & mask, immediate & mask, width);
+        if (width == 8U) state.gpr[destination] = product.value;
+        else if (width == 4U)
+            state.gpr[destination] = static_cast<std::uint32_t>(product.value);
+        else
+            state.gpr[destination] =
+                (state.gpr[destination] & ~0xffffULL) | (product.value & 0xffffULL);
+        if (product.overflow) state.rflags |= flag_cf | flag_of;
+        else state.rflags &= ~(flag_cf | flag_of);
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // LEA computes an effective address without reading guest memory.
     if (opcode == 0x8d) {
         if (operand_size_override) return StepResult::UnsupportedInstruction;
@@ -986,6 +1085,55 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             } else {
                 state.gpr[destination] = static_cast<std::uint32_t>(value);
             }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
+        // Two-operand signed IMUL r16/32/64, r/m16/32/64.
+        if (second == 0xaf) {
+            if (prefix_f3 || prefix_f2)
+                return StepResult::UnsupportedInstruction;
+            const std::size_t width = rex_w ? 8U : (operand_size_override ? 2U : 4U);
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            std::uint64_t source = 0;
+            if ((modrm >> 6U) == 3U) {
+                const std::size_t source_register =
+                    static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+                source = state.gpr[source_register];
+            } else {
+                std::uint64_t address = 0;
+                if (!decode_effective_address(state, memory, pc, modrm,
+                                              rex_b, rex_x, 0, address))
+                    return StepResult::MemoryFault;
+                if (width == 2U) {
+                    const auto value = memory.template read_le<std::uint16_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                } else if (width == 4U) {
+                    const auto value = memory.template read_le<std::uint32_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                } else {
+                    const auto value = memory.template read_le<std::uint64_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                }
+            }
+            const std::uint64_t mask = width == 8U ? UINT64_MAX :
+                                       width == 4U ? 0xffffffffULL : 0xffffULL;
+            const auto product = signed_multiply(state.gpr[destination] & mask,
+                                                 source & mask, width);
+            if (width == 8U) state.gpr[destination] = product.value;
+            else if (width == 4U)
+                state.gpr[destination] = static_cast<std::uint32_t>(product.value);
+            else
+                state.gpr[destination] =
+                    (state.gpr[destination] & ~0xffffULL) | (product.value & 0xffffULL);
+            if (product.overflow) state.rflags |= flag_cf | flag_of;
+            else state.rflags &= ~(flag_cf | flag_of);
             state.rip = pc;
             return StepResult::Executed;
         }
