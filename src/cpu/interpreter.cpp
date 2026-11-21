@@ -3228,6 +3228,66 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    // TEST r/m8, r8. This instruction updates flags without storing a result.
+    if (opcode == 0x84) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        const std::size_t reg_index = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                      (rex_r ? 8U : 0U);
+        const std::size_t rm_index = static_cast<std::size_t>(modrm & 7U) +
+                                     (rex_b ? 8U : 0U);
+        auto read_byte_register = [&](std::size_t index) -> std::uint8_t {
+            if (!rex_present && index >= 4U && index <= 7U)
+                return static_cast<std::uint8_t>(state.gpr[index - 4U] >> 8U);
+            return static_cast<std::uint8_t>(state.gpr[index]);
+        };
+        std::uint8_t lhs = 0;
+        if (mod == 3) {
+            lhs = read_byte_register(rm_index);
+        } else {
+            std::uint64_t address = 0;
+            if (!decode_effective_address(state, memory, pc, modrm, rex_b, rex_x, 0U, address))
+                return StepResult::MemoryFault;
+            const auto loaded = memory.template read_le<std::uint8_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            lhs = *loaded;
+        }
+        update_logic_flags8(state, static_cast<std::uint8_t>(lhs & read_byte_register(reg_index)));
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
+    // TEST r/m8, imm8 (F6 /0).
+    if (opcode == 0xf6) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if (((modrm >> 3U) & 7U) != 0U) return StepResult::UnsupportedInstruction;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        const std::size_t rm_index = static_cast<std::size_t>(modrm & 7U) +
+                                     (rex_b ? 8U : 0U);
+        std::uint64_t address = 0;
+        if (mod != 3 &&
+            !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x, 1U, address))
+            return StepResult::MemoryFault;
+        std::uint8_t value = 0;
+        if (mod == 3) {
+            if (!rex_present && rm_index >= 4U && rm_index <= 7U)
+                value = static_cast<std::uint8_t>(state.gpr[rm_index - 4U] >> 8U);
+            else
+                value = static_cast<std::uint8_t>(state.gpr[rm_index]);
+        } else {
+            const auto loaded = memory.template read_le<std::uint8_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            value = *loaded;
+        }
+        std::uint8_t immediate = 0;
+        if (!fetch8(memory, pc, immediate)) return StepResult::MemoryFault;
+        update_logic_flags8(state, static_cast<std::uint8_t>(value & immediate));
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // TEST r/m32, r32 and TEST r/m64, r64 (register-only forms).
     // Updates logical flags without modifying either operand.
     if (opcode == 0x85) {
