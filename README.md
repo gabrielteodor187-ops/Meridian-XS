@@ -41,7 +41,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state).
 - Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers; MOVUPS/MOVUPD/MOVAPS/MOVAPD packed moves; MOVSS/MOVSD scalar moves with appropriate upper-lane behavior.
 - Initial floating-point SIMD arithmetic: ADDPS/ADDPD/ADDSS/ADDSD, SUB, MUL, and DIV variants with packed/scalar lane handling.
-- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
+- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB/MOVMSKPS/MOVMSKPD, AND/ANDN/OR/XOR packed bitwise operations, and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -372,3 +372,8 @@ Added ADD/SUB/MUL/DIV for packed single/double and scalar single/double forms (P
 ### v0.62.1 — ADDSS test input isolation
 
 Corrected the ADDSS test to use the original left-hand vector rather than the already modified ADDPS result. The test now checks the intended 1.0 + 10.0 scalar case and compares preserved upper lanes against the original destination state.
+
+
+### v0.63.0 — SSE packed bitwise operations and sign masks
+
+Added ANDPS/ANDPD, ANDNPS/ANDNPD, ORPS/ORPD alongside the existing XOR operations, and MOVMSKPS/MOVMSKPD to extract packed lane sign bits into a GPR. Tests cover ANDNPS semantics and 32-/64-bit movemask extraction. Floating-point exception and MXCSR behavior remain incomplete.

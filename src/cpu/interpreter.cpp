@@ -381,12 +381,40 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             second == 0x74 || second == 0x75 || second == 0x76 ||
             second == 0x64 || second == 0x65 || second == 0x66;
         const bool shuffle_operation = second == 0x70 || second == 0xc6;
+        const bool fp_bitwise = second == 0x54 || second == 0x55 ||
+                                second == 0x56 || second == 0x57;
         const bool floating_arithmetic =
             second == 0x58 || second == 0x5c || second == 0x59 || second == 0x5e;
         const bool shuffle_pshufd = second == 0x70 && operand_size_override &&
                                     !prefix_f3 && !prefix_f2;
         const bool shuffle_shufps = second == 0xc6 && !operand_size_override &&
                                     !prefix_f3 && !prefix_f2;
+
+        if (second == 0x50) { // MOVMSKPS/MOVMSKPD r32, xmm
+            if (prefix_f3 || prefix_f2)
+                return StepResult::UnsupportedInstruction;
+            if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+                (state.control_registers[4] & (1ULL << 9U)) == 0)
+                return StepResult::UnsupportedInstruction;
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if ((modrm >> 6U) != 3U) return StepResult::UnsupportedInstruction;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t source =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            const std::size_t lane_size = operand_size_override ? 8U : 4U;
+            std::uint32_t mask = 0;
+            for (std::size_t lane = 0; lane < 16U / lane_size; ++lane) {
+                const std::size_t sign_byte = lane * lane_size + lane_size - 1U;
+                if ((std::to_integer<unsigned char>(state.xmm[source][sign_byte]) &
+                     0x80U) != 0)
+                    mask |= 1U << lane;
+            }
+            state.gpr[destination] = mask;
+            state.rip = pc;
+            return StepResult::Executed;
+        }
         if (second == 0xd7) { // PMOVMSKB r32, xmm
             if (!operand_size_override || prefix_f3 || prefix_f2)
                 return StepResult::UnsupportedInstruction;
@@ -410,13 +438,13 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             return StepResult::Executed;
         }
         if (second == 0x6f || second == 0x7f || second == 0xef ||
-            second == 0xdb || second == 0xeb || second == 0x57 ||
+            second == 0xdb || second == 0xeb || second == 0x57 || fp_bitwise ||
             packed_add_sub || packed_compare || shuffle_operation ||
             floating_arithmetic) {
             const bool is_move = second == 0x6f || second == 0x7f;
             const bool aligned_move = is_move && operand_size_override && !prefix_f3;
             const bool unaligned_move = is_move && prefix_f3 && !operand_size_override;
-            const bool bitwise_legacy = !is_move && second == 0x57 &&
+            const bool bitwise_legacy = !is_move && fp_bitwise &&
                                         !prefix_f3 && !prefix_f2;
             const bool bitwise_sse2 = !is_move && !packed_add_sub && second != 0x57 &&
                                       operand_size_override && !prefix_f3 && !prefix_f2;
@@ -622,7 +650,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                     const auto rhs = std::to_integer<unsigned char>(source[i]);
                     unsigned char result = 0;
                     if (second == 0xef || second == 0x57) result = lhs ^ rhs;
-                    else if (second == 0xdb) result = lhs & rhs;
+                    else if (second == 0x55) result = static_cast<unsigned char>((~lhs) & rhs);
+                    else if (second == 0xdb || second == 0x54) result = lhs & rhs;
                     else result = lhs | rhs;
                     state.xmm[reg_index][i] = static_cast<std::byte>(result);
                 }

@@ -3108,6 +3108,55 @@ void test_sse_floating_arithmetic_subset() {
     }
 }
 
+
+void test_sse_bitwise_and_movemask_family() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31300, 0x100};
+    const std::array<std::byte, 4> andnps{
+        std::byte{0x0f}, std::byte{0x55}, std::byte{0xc1}, std::byte{0xf4}
+    };
+    require(memory.write(0x31300, andnps), "ANDNPS instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31300;
+    state.control_registers[4] = 1ULL << 9U;
+    state.xmm[0].fill(std::byte{0xf0});
+    state.xmm[1].fill(std::byte{0x0f});
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "ANDNPS should execute");
+    for (const auto byte : state.xmm[0])
+        require(byte == std::byte{0x0f},
+                "ANDNPS should compute bitwise NOT(destination) AND source");
+
+    const std::array<std::byte, 4> movmskps{
+        std::byte{0x0f}, std::byte{0x50}, std::byte{0xd1}, std::byte{0xf4}
+    };
+    require(memory.write(0x31320, movmskps), "MOVMSKPS instruction should load");
+    meridian::cpu::CpuState single_mask{};
+    single_mask.rip = 0x31320;
+    single_mask.control_registers[4] = 1ULL << 9U;
+    single_mask.xmm[1][3] = std::byte{0x80};
+    single_mask.xmm[1][11] = std::byte{0x80};
+    require(interpreter.step(single_mask, memory) == StepResult::Executed,
+            "MOVMSKPS should execute");
+    require(single_mask.gpr[2] == 0x5,
+            "MOVMSKPS should collect the sign bit of each 32-bit lane");
+
+    const std::array<std::byte, 5> movmskpd{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x50},
+        std::byte{0xd0}, std::byte{0xf4}
+    };
+    require(memory.write(0x31340, movmskpd), "MOVMSKPD instruction should load");
+    meridian::cpu::CpuState double_mask{};
+    double_mask.rip = 0x31340;
+    double_mask.control_registers[4] = 1ULL << 9U;
+    double_mask.xmm[0][7] = std::byte{0x80};
+    require(interpreter.step(double_mask, memory) == StepResult::Executed,
+            "MOVMSKPD should execute");
+    require(double_mask.gpr[0] == 0x1,
+            "MOVMSKPD should collect the sign bit of each 64-bit lane");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3174,6 +3223,7 @@ int main() {
         test_movd_movq_xmm_transfers();
         test_sse_packed_and_scalar_moves();
         test_sse_floating_arithmetic_subset();
+        test_sse_bitwise_and_movemask_family();
 
         test_cpu_state_reset();
         test_interpreter();
