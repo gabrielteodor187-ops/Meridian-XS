@@ -3057,7 +3057,44 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         const std::uint64_t address = (rip_relative ? pc : (has_base ? base_value : 0)) +
                                       (index_value << scale_shift) +
                                       static_cast<std::uint64_t>(displacement);
-        if (rex_w) {
+        if (operand_size_override && !rex_w) {
+            const auto loaded = memory.template read_le<std::uint16_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            const std::uint16_t lhs = *loaded;
+            const std::uint16_t rhs = static_cast<std::uint16_t>(state.gpr[source]);
+            std::uint16_t result = 0;
+            switch (opcode) {
+            case 0x01:
+                result = static_cast<std::uint16_t>(lhs + rhs);
+                update_add_flags16(state, lhs, rhs, result);
+                break;
+            case 0x09:
+                result = static_cast<std::uint16_t>(lhs | rhs);
+                update_logic_flags16(state, result);
+                break;
+            case 0x21:
+                result = static_cast<std::uint16_t>(lhs & rhs);
+                update_logic_flags16(state, result);
+                break;
+            case 0x29:
+                result = static_cast<std::uint16_t>(lhs - rhs);
+                update_sub_flags16(state, lhs, rhs, result);
+                break;
+            case 0x31:
+                result = static_cast<std::uint16_t>(lhs ^ rhs);
+                update_logic_flags16(state, result);
+                break;
+            case 0x39:
+                result = static_cast<std::uint16_t>(lhs - rhs);
+                update_sub_flags16(state, lhs, rhs, result);
+                break;
+            default:
+                return StepResult::UnsupportedInstruction;
+            }
+            if (opcode != 0x39 &&
+                !memory.template write_le<std::uint16_t>(address, result))
+                return StepResult::MemoryFault;
+        } else if (rex_w) {
             const auto loaded = memory.template read_le<std::uint64_t>(address);
             if (!loaded) return StepResult::MemoryFault;
             const std::uint64_t lhs = *loaded;
