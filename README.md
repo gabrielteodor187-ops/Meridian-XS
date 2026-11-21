@@ -52,3 +52,8 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 4. Research graphics command translation and console-specific interfaces using public documentation.
 
 All implementation is intended to be original code based on public information. No proprietary SDKs, firmware, keys, or game data are included.
+
+
+### v0.20.0 — CPU virtual-address-space execution
+
+The interpreter can now execute against either the original bounded guest-memory region or the page-based virtual address space. Instruction bytes and immediates use execute-checked fetches; data loads, stores, and stack operations use read/write-checked accesses. Automated tests cover execution from read/execute pages, data access, denied instruction fetches, and denied writes. This remains a small x86-64 instruction subset and is not full Xbox virtual-memory or hardware emulation.

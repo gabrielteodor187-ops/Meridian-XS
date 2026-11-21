@@ -15,15 +15,17 @@ constexpr std::uint64_t flag_of = 1ULL << 11;
 constexpr std::uint64_t arithmetic_flags = flag_cf | flag_pf | flag_af | flag_zf | flag_sf | flag_of;
 constexpr std::size_t rsp_index = 4;
 
-bool fetch8(const core::GuestMemory& memory, std::uint64_t& pc, std::uint8_t& out) noexcept {
-    const auto value = memory.read_le<std::uint8_t>(pc);
+template <typename Memory>
+bool fetch8(const Memory& memory, std::uint64_t& pc, std::uint8_t& out) noexcept {
+    const auto value = memory.fetch_le<std::uint8_t>(pc);
     if (!value) return false;
     out = *value;
     ++pc;
     return true;
 }
 
-bool push64(CpuState& state, core::GuestMemory& memory, std::uint64_t value) noexcept {
+template <typename Memory>
+bool push64(CpuState& state, Memory& memory, std::uint64_t value) noexcept {
     const std::uint64_t old_rsp = state.gpr[rsp_index];
     if (old_rsp < sizeof(std::uint64_t)) return false;
     const std::uint64_t new_rsp = old_rsp - sizeof(std::uint64_t);
@@ -94,7 +96,8 @@ void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
 }
 } // namespace
 
-StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const noexcept {
+template <typename Memory>
+StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     std::uint64_t pc = state.rip;
     std::uint8_t opcode = 0;
     if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
@@ -110,7 +113,7 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
 
     // Near relative CALL rel32 and RET. The stack grows toward lower addresses.
     if (opcode == 0xe8) {
-        const auto raw_displacement = memory.read_le<std::uint32_t>(pc);
+        const auto raw_displacement = memory.fetch_le<std::uint32_t>(pc);
         if (!raw_displacement) return StepResult::MemoryFault;
         pc += 4;
         const auto displacement = std::bit_cast<std::int32_t>(*raw_displacement);
@@ -145,7 +148,7 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
         if (second != 0x84 && second != 0x85) return StepResult::UnsupportedInstruction;
-        const auto raw_displacement = memory.read_le<std::uint32_t>(pc);
+        const auto raw_displacement = memory.fetch_le<std::uint32_t>(pc);
         if (!raw_displacement) return StepResult::MemoryFault;
         pc += 4;
         const auto displacement = std::bit_cast<std::int32_t>(*raw_displacement);
@@ -191,12 +194,12 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
     if (opcode >= 0xb8 && opcode <= 0xbf) {
         const std::size_t reg = static_cast<std::size_t>(opcode - 0xb8) + (rex_b ? 8U : 0U);
         if (rex_w) {
-            const auto immediate = memory.read_le<std::uint64_t>(pc);
+            const auto immediate = memory.fetch_le<std::uint64_t>(pc);
             if (!immediate) return StepResult::MemoryFault;
             state.gpr[reg] = *immediate;
             pc += 8;
         } else {
-            const auto immediate = memory.read_le<std::uint32_t>(pc);
+            const auto immediate = memory.fetch_le<std::uint32_t>(pc);
             if (!immediate) return StepResult::MemoryFault;
             state.gpr[reg] = *immediate;
             pc += 4;
@@ -218,7 +221,7 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
                                         (rex_b ? 8U : 0U);
-        const auto raw_immediate = memory.read_le<std::uint32_t>(pc);
+        const auto raw_immediate = memory.fetch_le<std::uint32_t>(pc);
         if (!raw_immediate) return StepResult::MemoryFault;
         pc += 4;
         const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination]);
@@ -266,7 +269,7 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
                                         (rex_b ? 8U : 0U);
-        const auto raw_immediate = memory.read_le<std::uint32_t>(pc);
+        const auto raw_immediate = memory.fetch_le<std::uint32_t>(pc);
         if (!raw_immediate) return StepResult::MemoryFault;
         pc += 4;
         const auto immediate = std::bit_cast<std::int32_t>(*raw_immediate);
@@ -367,7 +370,7 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
             if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int8_t>(raw);
         } else if (mod == 2 || (mod == 0 && (!has_base || rip_relative))) {
-            const auto raw = memory.read_le<std::uint32_t>(pc);
+            const auto raw = memory.fetch_le<std::uint32_t>(pc);
             if (!raw) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int32_t>(*raw);
             pc += 4;
@@ -525,7 +528,7 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
             if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int8_t>(raw);
         } else if (mod == 2 || (mod == 0 && (!has_base || rip_relative))) {
-            const auto raw = memory.read_le<std::uint32_t>(pc);
+            const auto raw = memory.fetch_le<std::uint32_t>(pc);
             if (!raw) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int32_t>(*raw);
             pc += 4;
@@ -667,6 +670,14 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
     }
 
     return StepResult::UnsupportedInstruction;
+}
+
+StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const noexcept {
+    return step_impl(state, memory);
+}
+
+StepResult Interpreter::step(CpuState& state, core::VirtualAddressSpace& memory) const noexcept {
+    return step_impl(state, memory);
 }
 
 } // namespace meridian::cpu

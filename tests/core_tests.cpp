@@ -854,6 +854,71 @@ void test_virtual_address_typed_access() {
             "typed data read should remain available without execute permission");
 }
 
+
+void test_interpreter_virtual_address_space() {
+    using meridian::core::PagePermissions;
+    using meridian::core::VirtualAddressSpace;
+    using meridian::cpu::StepResult;
+
+    meridian::core::GuestMemory backing{0x60000, 3 * VirtualAddressSpace::page_size};
+    VirtualAddressSpace space{};
+    require(space.map(0x800000, backing, 0x60000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, false, true}),
+            "CPU code page should map read/execute");
+    require(space.map(0x900000, backing, 0x61000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, true, false}),
+            "CPU data page should map read/write");
+    const std::array<std::byte, 8> program{
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x07},
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x47}, std::byte{0x08},
+        std::byte{0xf4}
+    };
+    require(backing.write(0x60000, program), "virtual-memory CPU program should load");
+    require(space.write_le<std::uint64_t>(0x900000, 0x123456789abcdef0ULL),
+            "virtual-memory CPU data should initialize");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x800000;
+    state.gpr[7] = 0x900000;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, space) == StepResult::Executed,
+            "CPU should fetch code from an executable virtual page");
+    require(state.gpr[0] == 0x123456789abcdef0ULL,
+            "CPU data load should use readable virtual memory");
+    require(interpreter.step(state, space) == StepResult::Executed,
+            "CPU should store through writable virtual memory");
+    require(space.read_le<std::uint64_t>(0x900008).value_or(0) ==
+                0x123456789abcdef0ULL,
+            "CPU virtual-memory store should update the mapped backing page");
+    require(interpreter.step(state, space) == StepResult::Halted,
+            "CPU should fetch HLT through the virtual address space");
+
+    require(space.protect(0x800000, VirtualAddressSpace::page_size,
+                          PagePermissions{true, false, false}),
+            "code page should become non-executable");
+    state.rip = 0x800000;
+    require(interpreter.step(state, space) == StepResult::MemoryFault,
+            "CPU instruction fetch must respect execute permission");
+    require(state.rip == 0x800000,
+            "instruction-fetch fault must leave RIP unchanged");
+
+    require(space.protect(0x800000, VirtualAddressSpace::page_size,
+                          PagePermissions{true, false, true}),
+            "code page should become executable again");
+    require(space.protect(0x900000, VirtualAddressSpace::page_size,
+                          PagePermissions{true, false, false}),
+            "data page should become read-only");
+    state.rip = 0x800003;
+    state.gpr[0] = 0xfeedfacecafebeefULL;
+    require(interpreter.step(state, space) == StepResult::MemoryFault,
+            "CPU data store must respect write permission");
+    require(state.rip == 0x800003,
+            "data-write fault must leave RIP unchanged");
+    require(space.read_le<std::uint64_t>(0x900008).value_or(0) ==
+                0x123456789abcdef0ULL,
+            "rejected CPU store must not modify backing memory");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -873,6 +938,7 @@ int main() {
         test_virtual_address_space();
         test_virtual_address_protection_changes();
         test_virtual_address_typed_access();
+        test_interpreter_virtual_address_space();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
