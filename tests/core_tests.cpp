@@ -540,15 +540,7 @@ void test_32bit_register_mov() {
     require(interpreter.step(state, memory) == StepResult::Halted,
             "32-bit register MOV program should reach HLT");
 
-    const std::array<std::byte, 2> unsupported_memory_form{
-        std::byte{0x8b}, std::byte{0x00}
-    };
-    require(memory.write(0xc020, unsupported_memory_form),
-            "unsupported memory MOV test should load");
-    state.rip = 0xc020;
-    require(interpreter.step(state, memory) == StepResult::UnsupportedInstruction,
-            "32-bit MOV memory forms should remain explicitly unsupported");
-    require(state.rip == 0xc020, "unsupported MOV must not advance RIP");
+
 }
 
 void test_32bit_memory_mov() {
