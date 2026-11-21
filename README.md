@@ -102,3 +102,8 @@ Added an end-to-end test for C7 immediate stores through the CPU's virtual-addre
 ### v0.29.0 — Atomic cross-page immediate-store validation
 
 Added a regression test for a 64-bit C7 store that crosses from a writable virtual page into a read-only page. The operation must fault before changing either page, proving that the virtual-address-space write validation prevents partial stores on permission failures.
+
+
+### v0.30.0 — Memory-source MOVSX/MOVZX
+
+Extended MOVSX and MOVZX byte/word forms to memory operands using base/displacement, SIB scaled-index, and RIP-relative addressing. Loads use the memory read path, so virtual-page read permissions are enforced. Register forms, including legacy high-byte and REX byte registers, remain supported. Full decoder and address-size coverage are still incomplete.
