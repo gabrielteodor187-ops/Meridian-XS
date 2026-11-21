@@ -2,6 +2,7 @@
 #include "meridian/core/virtual_address_space.hpp"
 #include "meridian/core/x64_page_table_walker.hpp"
 #include "meridian/core/pe_image_loader.hpp"
+#include "meridian/core/x64_guest_image_mapper.hpp"
 #include "meridian/cpu/cpu_state.hpp"
 #include "meridian/cpu/interpreter.hpp"
 
@@ -2218,7 +2219,12 @@ void test_pe32_plus_image_loader() {
     write_section(sections, ".text", 0x200, 0x1000, 0x200, 0x200, 0x60000020);
     write_section(sections + 40, ".reloc", 0x200, 0x2000, 0x200, 0x400, 0x42000040);
 
-    file[0x200] = std::byte{0xf4}; // HLT at the image entry point.
+    file[0x200] = std::byte{0xb8}; // MOV EAX, 42; HLT.
+    file[0x201] = std::byte{0x2a};
+    file[0x202] = std::byte{0x00};
+    file[0x203] = std::byte{0x00};
+    file[0x204] = std::byte{0x00};
+    file[0x205] = std::byte{0xf4};
     put64(0x210, preferred_base + 0x1234);
     put32(0x400, 0x1000); // Relocation page RVA.
     put32(0x404, 12);     // Block size.
@@ -2240,8 +2246,34 @@ void test_pe32_plus_image_loader() {
             std::to_integer<unsigned char>(loaded->image[0x1010 + i])) << (i * 8U);
     require(relocated == 0x150001234ULL,
             "PE loader should apply DIR64 base relocations");
-    require(loaded->image[0x1000] == std::byte{0xf4},
+    require(loaded->image[0x1000] == std::byte{0xb8},
             "PE loader should map section contents at their RVAs");
+
+    meridian::core::GuestMemory physical{0, 0x200000};
+    meridian::core::X64GuestImageMapper mapper{physical};
+    const auto mapped = mapper.map(*loaded, 4);
+    require(mapped.has_value() && mapped->entry_point == loaded->entry_point &&
+            mapped->pages_mapped >= 7,
+            "guest image mapper should allocate image, page tables, and stack");
+    meridian::core::X64PagedMemory paged{physical, mapped->cr3};
+    meridian::cpu::CpuState cpu{};
+    cpu.rip = mapped->entry_point;
+    cpu.gpr[4] = mapped->stack_pointer;
+    cpu.control_registers[0] = 1ULL << 16U;
+    cpu.control_registers[3] = mapped->cr3;
+    cpu.efer = 1ULL << 11U;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(cpu, paged) == meridian::cpu::StepResult::Executed,
+            "mapped PE entry point should execute through the CPU page tables");
+    require(cpu.gpr[0] == 42,
+            "mapped PE code should update the guest EAX register");
+    require(interpreter.step(cpu, paged) == meridian::cpu::StepResult::Halted,
+            "mapped PE code should reach HLT");
+    require(paged.write_le<std::uint64_t>(mapped->stack_pointer - 8, 0xfeedfaceULL),
+            "mapped initial stack should accept guest writes");
+    require(paged.read_le<std::uint64_t>(mapped->stack_pointer - 8).value_or(0) ==
+                0xfeedfaceULL,
+            "mapped initial stack should return guest data");
 
     const auto preferred = PeImageLoader::load(file);
     require(preferred.has_value() && preferred->image_base == preferred_base,

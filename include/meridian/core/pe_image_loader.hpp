@@ -22,6 +22,7 @@ struct LoadedPeImage {
     std::uint64_t image_base{0};
     std::uint64_t entry_point{0};
     std::uint32_t image_size{0};
+    std::uint32_t headers_size{0};
     std::vector<std::byte> image;
     std::vector<PeSection> sections;
 };

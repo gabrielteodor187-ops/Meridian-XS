@@ -153,6 +153,7 @@ std::optional<LoadedPeImage> PeImageLoader::load(
     loaded.entry_point = loaded.image_base + entry_rva;
     if (loaded.entry_point < loaded.image_base) return std::nullopt;
     loaded.image_size = image_size;
+    loaded.headers_size = headers_size;
     loaded.image.resize(image_size);
     loaded.sections.reserve(section_count);
     std::copy_n(file.begin(), headers_size, loaded.image.begin());
