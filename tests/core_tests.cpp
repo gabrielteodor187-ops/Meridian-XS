@@ -1723,6 +1723,77 @@ void test_group1_immediate_memory_destinations() {
             "RIP-relative address should include the trailing immediate byte");
 }
 
+
+void test_x64_page_table_walker() {
+    using meridian::core::GuestMemory;
+    using meridian::core::X64MemoryAccess;
+    using meridian::core::X64PageTableWalker;
+    GuestMemory physical{0, 0x1000000};
+    constexpr std::uint64_t present_rw_user = 0x7;
+    require(physical.write_le<std::uint64_t>(0x1000, 0x2000 | present_rw_user),
+            "PML4 entry should initialize");
+    require(physical.write_le<std::uint64_t>(0x2000, 0x3000 | present_rw_user),
+            "PDPT entry should initialize");
+    require(physical.write_le<std::uint64_t>(0x3010, 0x4000 | present_rw_user),
+            "PD entry should initialize");
+    require(physical.write_le<std::uint64_t>(0x4000, 0x8000 | present_rw_user),
+            "PT entry should initialize");
+
+    const auto page = X64PageTableWalker::translate(
+        physical, 0x1000, 0x400123, X64MemoryAccess::Read);
+    require(page.has_value(), "four-level 4 KiB translation should succeed");
+    require(page->physical_address == 0x8123 && page->page_size == 4096,
+            "4 KiB translation should combine the frame and page offset");
+    require(X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Write).has_value(),
+            "writable page should allow writes");
+    require(X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Execute).has_value(),
+            "executable page should allow instruction fetches");
+    require(X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Read, true).has_value(),
+            "user access should succeed when every level is user-accessible");
+
+    require(physical.write_le<std::uint64_t>(0x4000,
+                0x8000 | present_rw_user | (1ULL << 63U)),
+            "NX page entry should update");
+    require(!X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Execute),
+            "NX page should deny instruction fetches when NXE is enabled");
+    require(X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Read).has_value(),
+            "NX page should remain readable");
+
+    require(physical.write_le<std::uint64_t>(0x4000, 0x8000 | present_rw_user),
+            "writable page entry should restore");
+    require(physical.write_le<std::uint64_t>(0x4000,
+                0x8000 | present_rw_user & ~0x2ULL),
+            "read-only page entry should update");
+    require(!X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Write),
+            "read-only page should deny supervisor writes when CR0.WP is enabled");
+    require(X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Write,
+                false, false).has_value(),
+            "supervisor writes may bypass read-only pages when CR0.WP is disabled");
+    require(!X64PageTableWalker::translate(
+                physical, 0x1000, 0x400123, X64MemoryAccess::Write, true, false),
+            "user writes must not bypass read-only page permissions");
+
+    require(physical.write_le<std::uint64_t>(0x3010,
+                0x600000 | present_rw_user | (1ULL << 7U)),
+            "2 MiB large-page entry should initialize");
+    const auto large = X64PageTableWalker::translate(
+        physical, 0x1000, 0x400123, X64MemoryAccess::Read);
+    require(large.has_value() && large->physical_address == 0x600123 &&
+            large->page_size == (1ULL << 21U),
+            "2 MiB page translation should preserve the large-page offset");
+
+    require(!X64PageTableWalker::translate(
+                physical, 0x1000, 0x0000800000000000ULL, X64MemoryAccess::Read),
+            "non-canonical 48-bit virtual addresses should be rejected");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1764,6 +1835,7 @@ int main() {
         test_cmovcc_register_forms();
         test_setcc_memory_operands();
         test_group1_immediate_memory_destinations();
+        test_x64_page_table_walker();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

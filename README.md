@@ -31,6 +31,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Group-1 immediate arithmetic using imm32 and sign-extended imm8 encodings, with register and supported memory destinations.
 - 32-bit and 64-bit memory-destination ADD, SUB, XOR, and CMP using base, disp8, disp32, SIB-scaled index, no-base SIB, and RIP-relative addressing.
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
+- Standalone four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -176,3 +177,8 @@ Extended SETcc to write byte results to guest memory using base/displacement, SI
 ### v0.40.0 — Group-1 immediate memory operations
 
 Extended Group-1 ADD, OR, AND, SUB, XOR, and CMP immediate operations to memory destinations for both 32-bit and 64-bit operand sizes. Both 0x81 imm32 and 0x83 sign-extended imm8 forms are supported, using base/displacement, SIB, no-base SIB, and RIP-relative effective addresses. RIP-relative calculations account for the trailing immediate bytes. Memory CMP remains non-writing, and stores use checked atomic memory writes. Tests cover 32-bit ADD, 64-bit AND, memory CMP, and RIP-relative imm8 addressing.
+
+
+### v0.41.0 — x86-64 page-table translation foundation
+
+Added a standalone four-level x86-64 page-table walker for 48-bit canonical virtual addresses. It handles 4 KiB pages and 2 MiB/1 GiB large-page entries, accumulates writable/user/NX permissions across levels, and models supervisor write bypass when CR0.WP is disabled. NXE handling and non-canonical address rejection are included. This walker is not yet connected to the CPU interpreter and does not implement TLBs, page-fault error codes, PCID, or the complete architectural reserved-bit checks.
