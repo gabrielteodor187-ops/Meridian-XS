@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <cmath>
 
 namespace meridian::cpu {
 namespace {
@@ -368,6 +369,107 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             } else if (!memory.write(address,
                        std::span<const std::byte>{state.xmm[xmm_reg]}.first(width))) {
                 return StepResult::MemoryFault;
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
+
+        // Legacy SSE CMPPS/CMPPD/CMPSS/CMPSD with the eight imm8 predicates.
+        if (second == 0xc2) {
+            const bool scalar = prefix_f3 || prefix_f2;
+            const bool double_precision = operand_size_override || prefix_f2;
+            const bool valid_prefix =
+                (!operand_size_override && !prefix_f3 && !prefix_f2) ||
+                (operand_size_override && !prefix_f3 && !prefix_f2) ||
+                (!operand_size_override && prefix_f3 && !prefix_f2) ||
+                (!operand_size_override && !prefix_f3 && prefix_f2);
+            if (!valid_prefix) return StepResult::UnsupportedInstruction;
+            if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+                (state.control_registers[4] & (1ULL << 9U)) == 0)
+                return StepResult::UnsupportedInstruction;
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t source_reg =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            const bool register_operand = (modrm >> 6U) == 3U;
+            const std::size_t lane_size = double_precision ? 8U : 4U;
+            const std::size_t source_size = scalar ? lane_size : 16U;
+            std::array<std::byte, 16> source{};
+            if (register_operand) {
+                source = state.xmm[source_reg];
+            } else {
+                std::uint64_t address = 0;
+                if (!decode_effective_address(state, memory, pc, modrm,
+                                              rex_b, rex_x, 1, address))
+                    return StepResult::MemoryFault;
+                if (!memory.read(address,
+                        std::span<std::byte>{source}.first(source_size)))
+                    return StepResult::MemoryFault;
+            }
+            std::uint8_t predicate = 0;
+            if (!fetch8(memory, pc, predicate)) return StepResult::MemoryFault;
+            predicate &= 7U;
+            const std::size_t lane_count = scalar ? 1U : 16U / lane_size;
+            for (std::size_t lane = 0; lane < lane_count; ++lane) {
+                bool unordered = false;
+                bool equal = false;
+                bool less = false;
+                bool less_equal = false;
+                if (double_precision) {
+                    std::uint64_t lhs_bits = 0;
+                    std::uint64_t rhs_bits = 0;
+                    for (std::size_t byte = 0; byte < 8; ++byte) {
+                        lhs_bits |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(
+                                state.xmm[destination][lane * 8U + byte])) << (byte * 8U);
+                        rhs_bits |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(
+                                source[lane * 8U + byte])) << (byte * 8U);
+                    }
+                    const double lhs = std::bit_cast<double>(lhs_bits);
+                    const double rhs = std::bit_cast<double>(rhs_bits);
+                    unordered = std::isnan(lhs) || std::isnan(rhs);
+                    equal = lhs == rhs;
+                    less = lhs < rhs;
+                    less_equal = lhs <= rhs;
+                } else {
+                    std::uint32_t lhs_bits = 0;
+                    std::uint32_t rhs_bits = 0;
+                    for (std::size_t byte = 0; byte < 4; ++byte) {
+                        lhs_bits |= static_cast<std::uint32_t>(
+                            std::to_integer<unsigned char>(
+                                state.xmm[destination][lane * 4U + byte])) << (byte * 8U);
+                        rhs_bits |= static_cast<std::uint32_t>(
+                            std::to_integer<unsigned char>(
+                                source[lane * 4U + byte])) << (byte * 8U);
+                    }
+                    const float lhs = std::bit_cast<float>(lhs_bits);
+                    const float rhs = std::bit_cast<float>(rhs_bits);
+                    unordered = std::isnan(lhs) || std::isnan(rhs);
+                    equal = lhs == rhs;
+                    less = lhs < rhs;
+                    less_equal = lhs <= rhs;
+                }
+                bool result = false;
+                switch (predicate) {
+                case 0: result = !unordered && equal; break;       // EQ_OQ
+                case 1: result = !unordered && less; break;        // LT_OS
+                case 2: result = !unordered && less_equal; break;  // LE_OS
+                case 3: result = unordered; break;                 // UNORD_Q
+                case 4: result = unordered || !equal; break;       // NEQ_UQ
+                case 5: result = unordered || !less; break;        // NLT_US
+                case 6: result = unordered || !less_equal; break;  // NLE_US
+                case 7: result = !unordered; break;                // ORD_Q
+                }
+                const std::uint64_t mask = double_precision
+                    ? UINT64_MAX : 0xffffffffULL;
+                const std::uint64_t value = result ? mask : 0;
+                for (std::size_t byte = 0; byte < lane_size; ++byte)
+                    state.xmm[destination][lane * lane_size + byte] =
+                        static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);
             }
             state.rip = pc;
             return StepResult::Executed;

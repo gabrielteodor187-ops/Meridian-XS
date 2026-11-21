@@ -3197,6 +3197,74 @@ void test_ldmxcsr_stmxcsr() {
             "invalid LDMXCSR should not partially update guest state");
 }
 
+
+void test_sse_compare_predicates() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31500, 0x100};
+    const std::array<std::byte, 4> cmpps{
+        std::byte{0x0f}, std::byte{0xc2}, std::byte{0xc1}, std::byte{0x00}
+    };
+    require(memory.write(0x31500, cmpps), "CMPPS instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31500;
+    state.control_registers[4] = 1ULL << 9U;
+    const std::array<float, 4> lhs{1.0F, 2.0F,
+        std::bit_cast<float>(0x7fc00000U), 4.0F};
+    const std::array<float, 4> rhs{1.0F, 3.0F,
+        std::bit_cast<float>(0x7fc00000U), 4.0F};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        const auto a = std::bit_cast<std::uint32_t>(lhs[lane]);
+        const auto b = std::bit_cast<std::uint32_t>(rhs[lane]);
+        for (std::size_t byte = 0; byte < 4; ++byte) {
+            state.xmm[0][lane * 4U + byte] =
+                static_cast<std::byte>((a >> (byte * 8U)) & 0xffU);
+            state.xmm[1][lane * 4U + byte] =
+                static_cast<std::byte>((b >> (byte * 8U)) & 0xffU);
+        }
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CMPPS equality predicate should execute");
+    const std::array<std::uint32_t, 4> expected{
+        0xffffffffU, 0U, 0U, 0xffffffffU
+    };
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        std::uint32_t actual = 0;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            actual |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(state.xmm[0][lane * 4U + byte]))
+                << (byte * 8U);
+        require(actual == expected[lane],
+                "CMPPS EQ predicate should distinguish equal and unordered lanes");
+    }
+
+    const std::array<std::byte, 5> cmpss{
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0xc2},
+        std::byte{0xc1}, std::byte{0x01}
+    };
+    require(memory.write(0x31520, cmpss), "CMPSS instruction should load");
+    meridian::cpu::CpuState scalar{};
+    scalar.rip = 0x31520;
+    scalar.control_registers[4] = 1ULL << 9U;
+    const float scalar_left = 2.0F;
+    const float scalar_right = 3.0F;
+    const auto left_bits = std::bit_cast<std::uint32_t>(scalar_left);
+    const auto right_bits = std::bit_cast<std::uint32_t>(scalar_right);
+    for (std::size_t byte = 0; byte < 4; ++byte) {
+        scalar.xmm[0][byte] = static_cast<std::byte>((left_bits >> (byte * 8U)) & 0xffU);
+        scalar.xmm[1][byte] = static_cast<std::byte>((right_bits >> (byte * 8U)) & 0xffU);
+    }
+    scalar.xmm[0][4] = std::byte{0x55};
+    require(interpreter.step(scalar, memory) == StepResult::Executed,
+            "CMPSS less-than predicate should execute");
+    require(scalar.xmm[0][0] == std::byte{0xff} &&
+            scalar.xmm[0][1] == std::byte{0xff} &&
+            scalar.xmm[0][2] == std::byte{0xff} &&
+            scalar.xmm[0][3] == std::byte{0xff} &&
+            scalar.xmm[0][4] == std::byte{0x55},
+            "CMPSS should write an all-ones low lane and preserve upper bits");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3265,6 +3333,7 @@ int main() {
         test_sse_floating_arithmetic_subset();
         test_sse_bitwise_and_movemask_family();
         test_ldmxcsr_stmxcsr();
+        test_sse_compare_predicates();
 
         test_cpu_state_reset();
         test_interpreter();

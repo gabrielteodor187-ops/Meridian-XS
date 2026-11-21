@@ -40,6 +40,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
 - FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state), plus LDMXCSR/STMXCSR with MXCSR_MASK validation.
 - Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers; MOVUPS/MOVUPD/MOVAPS/MOVAPD packed moves; MOVSS/MOVSD scalar moves with appropriate upper-lane behavior.
+- Legacy CMPPS/CMPPD/CMPSS/CMPSD with all eight immediate predicate forms.
 - Initial floating-point SIMD arithmetic: ADDPS/ADDPD/ADDSS/ADDSD, SUB, MUL, and DIV variants with packed/scalar lane handling.
 - Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB/MOVMSKPS/MOVMSKPD, AND/ANDN/OR/XOR packed bitwise operations, and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
@@ -387,3 +388,8 @@ Added memory-form LDMXCSR and STMXCSR to load/store the guest MXCSR register. LD
 ### v0.64.1 — MOVMSKPD test register selection
 
 Corrected the MOVMSKPD test's ModRM byte to select RAX as the destination, matching the assertion. The instruction implementation was unchanged.
+
+
+### v0.65.0 — SSE floating-point compare predicates
+
+Added CMPPS/CMPPD/CMPSS/CMPSD with the eight legacy immediate predicates (ordered equality/less/less-equal, unordered, not-equal, not-less, not-less-equal, and ordered). Packed comparisons update every lane; scalar comparisons update only the low lane. Tests cover ordered equality, NaN/unordered handling, and scalar upper-lane preservation. Signaling-vs-quiet exception behavior and MXCSR exception flags are not yet modeled.
