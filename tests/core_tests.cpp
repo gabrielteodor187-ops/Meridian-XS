@@ -2679,7 +2679,7 @@ void test_sse2_packed_compare_and_movemask() {
     signed_state.rip = 0x2d020;
     signed_state.control_registers[4] = 1ULL << 9U;
     signed_state.xmm[0] = {
-        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x02}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x01}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x80},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}

@@ -309,3 +309,8 @@ Added packed integer addition and subtraction for 8-, 16-, 32-, and 64-bit lanes
 ### v0.57.0 — Packed SSE2 comparisons and byte movemask
 
 Added PCMPEQB/PCMPEQW/PCMPEQD and PCMPGTB/PCMPGTW/PCMPGTD, with signed comparisons for greater-than operations. Added register-form PMOVMSKB to gather the high bit of each XMM byte into a 32-bit GPR result. Tests cover alternating byte equality, movemask extraction, and signed dword comparisons. This remains an incomplete SIMD subset; floating-point SIMD, shuffles, scalar/vector conversions, and modern vector extensions are not yet implemented.
+
+
+### v0.57.1 — Signed compare fixture correction
+
+Corrected the first PCMPGTD test lane so the signed greater-than case compares positive 2 against positive 1. The earlier fixture compared -1 against 1 while expecting a true result. Interpreter behavior is unchanged.
