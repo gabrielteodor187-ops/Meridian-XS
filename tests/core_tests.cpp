@@ -28,8 +28,7 @@ void test_guest_memory() {
 }
 
 void test_interpreter() {
-    meridian::core::GuestMemory memory{0x2000, 32};
-    // MOV RAX, 0x1122334455667788; NOP; HLT
+    meridian::core::GuestMemory memory{0x2000, 64};
     const std::array<std::byte, 12> program{
         std::byte{0x48}, std::byte{0xb8},
         std::byte{0x88}, std::byte{0x77}, std::byte{0x66}, std::byte{0x55},
@@ -49,7 +48,7 @@ void test_interpreter() {
     require(interpreter.step(state, memory) == meridian::cpu::StepResult::Halted,
             "HLT should return the halted result");
 
-    state.rip = 0x2020;
+    state.rip = 0x2040;
     require(interpreter.step(state, memory) == meridian::cpu::StepResult::MemoryFault,
             "instruction fetch beyond mapped memory should fault");
     state.rip = 0x2000;
@@ -58,6 +57,53 @@ void test_interpreter() {
             "unsupported opcodes should be reported without being executed");
 }
 
+void test_arithmetic_instructions() {
+    using meridian::cpu::StepResult;
+    constexpr std::uint64_t zero_flag = 1ULL << 6U;
+    constexpr std::uint64_t carry_flag = 1ULL << 0U;
+    constexpr std::uint64_t overflow_flag = 1ULL << 11U;
+
+    meridian::core::GuestMemory memory{0x3000, 32};
+    // ADD RAX, RCX; SUB RAX, RCX; XOR RAX, RCX; CMP RAX, RCX
+    const std::array<std::byte, 16> program{
+        std::byte{0x48}, std::byte{0x01}, std::byte{0xc8},
+        std::byte{0x48}, std::byte{0x29}, std::byte{0xc8},
+        std::byte{0x48}, std::byte{0x31}, std::byte{0xc8},
+        std::byte{0x48}, std::byte{0x39}, std::byte{0xc8},
+        std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}
+    };
+    require(memory.write(0x3000, program), "arithmetic program should fit");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x3000;
+    state.gpr[0] = 5;
+    state.gpr[1] = 3;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed, "ADD should execute");
+    require(state.gpr[0] == 8, "ADD should store the sum");
+    require(interpreter.step(state, memory) == StepResult::Executed, "SUB should execute");
+    require(state.gpr[0] == 5, "SUB should store the difference");
+    require(interpreter.step(state, memory) == StepResult::Executed, "XOR should execute");
+    require(state.gpr[0] == 6, "XOR should store the bitwise result");
+    require(interpreter.step(state, memory) == StepResult::Executed, "CMP should execute");
+    require(state.gpr[0] == 6, "CMP must not modify its destination");
+    require((state.rflags & zero_flag) != 0, "CMP of equal values should set zero flag");
+
+    state.rip = 0x3000;
+    state.gpr[0] = 0xffffffffffffffffULL;
+    state.gpr[1] = 1;
+    require(interpreter.step(state, memory) == StepResult::Executed, "overflowing ADD should execute");
+    require(state.gpr[0] == 0, "64-bit ADD should wrap");
+    require((state.rflags & carry_flag) != 0, "overflowing unsigned ADD should set carry");
+    require((state.rflags & zero_flag) != 0, "zero result should set zero flag");
+
+    state.rip = 0x3000;
+    state.gpr[0] = 0x7fffffffffffffffULL;
+    state.gpr[1] = 1;
+    require(interpreter.step(state, memory) == StepResult::Executed, "signed-overflow ADD should execute");
+    require((state.rflags & overflow_flag) != 0, "signed overflow should set overflow flag");
+}
+ 
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -76,6 +122,7 @@ int main() {
         test_guest_memory();
         test_cpu_state_reset();
         test_interpreter();
+        test_arithmetic_instructions();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
