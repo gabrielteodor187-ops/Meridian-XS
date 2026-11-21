@@ -315,6 +315,11 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         const bool packed_compare =
             second == 0x74 || second == 0x75 || second == 0x76 ||
             second == 0x64 || second == 0x65 || second == 0x66;
+        const bool shuffle_operation = second == 0x70 || second == 0xc6;
+        const bool shuffle_pshufd = second == 0x70 && operand_size_override &&
+                                    !prefix_f3 && !prefix_f2;
+        const bool shuffle_shufps = second == 0xc6 && !operand_size_override &&
+                                    !prefix_f3 && !prefix_f2;
         if (second == 0xd7) { // PMOVMSKB r32, xmm
             if (!operand_size_override || prefix_f3 || prefix_f2)
                 return StepResult::UnsupportedInstruction;
@@ -339,7 +344,7 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         }
         if (second == 0x6f || second == 0x7f || second == 0xef ||
             second == 0xdb || second == 0xeb || second == 0x57 ||
-            packed_add_sub || packed_compare) {
+            packed_add_sub || packed_compare || shuffle_operation) {
             const bool is_move = second == 0x6f || second == 0x7f;
             const bool aligned_move = is_move && operand_size_override && !prefix_f3;
             const bool unaligned_move = is_move && prefix_f3 && !operand_size_override;
@@ -349,8 +354,9 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                                       operand_size_override && !prefix_f3 && !prefix_f2;
             const bool packed_sse2 = (packed_add_sub || packed_compare) &&
                                      operand_size_override && !prefix_f3 && !prefix_f2;
+            const bool valid_shuffle = shuffle_pshufd || shuffle_shufps;
             if (!(aligned_move || unaligned_move || bitwise_legacy ||
-                  bitwise_sse2 || packed_sse2) || prefix_f2)
+                  bitwise_sse2 || packed_sse2 || valid_shuffle) || prefix_f2)
                 return StepResult::UnsupportedInstruction;
 
             // This first cut requires OSFXSR and rejects CR0.EM/TS rather than
@@ -372,7 +378,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 source = state.xmm[rm_index];
             } else {
                 if (!decode_effective_address(state, memory, pc, modrm,
-                                              rex_b, rex_x, 0, address))
+                                              rex_b, rex_x, shuffle_operation ? 1U : 0U,
+                                              address))
                     return StepResult::MemoryFault;
                 if (aligned_move && (address & 0xfU) != 0)
                     return StepResult::GeneralProtectionFault;
@@ -382,7 +389,43 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 }
             }
 
-            if (second == 0x6f) {
+            if (shuffle_operation) {
+                std::uint8_t immediate = 0;
+                if (!fetch8(memory, pc, immediate)) return StepResult::MemoryFault;
+                const auto old_destination = state.xmm[reg_index];
+                const auto read_dword = [](const std::array<std::byte, 16>& value,
+                                           std::size_t lane) {
+                    std::uint32_t result = 0;
+                    for (std::size_t i = 0; i < 4; ++i)
+                        result |= static_cast<std::uint32_t>(
+                            std::to_integer<unsigned char>(value[lane * 4U + i]))
+                            << (i * 8U);
+                    return result;
+                };
+                const auto write_dword = [](std::array<std::byte, 16>& value,
+                                            std::size_t lane, std::uint32_t dword) {
+                    for (std::size_t i = 0; i < 4; ++i)
+                        value[lane * 4U + i] =
+                            static_cast<std::byte>((dword >> (i * 8U)) & 0xffU);
+                };
+                if (shuffle_pshufd) {
+                    for (std::size_t lane = 0; lane < 4; ++lane) {
+                        const std::size_t selected =
+                            (immediate >> (lane * 2U)) & 3U;
+                        write_dword(state.xmm[reg_index], lane,
+                                    read_dword(source, selected));
+                    }
+                } else {
+                    write_dword(state.xmm[reg_index], 0,
+                                read_dword(old_destination, immediate & 3U));
+                    write_dword(state.xmm[reg_index], 1,
+                                read_dword(old_destination, (immediate >> 2U) & 3U));
+                    write_dword(state.xmm[reg_index], 2,
+                                read_dword(source, (immediate >> 4U) & 3U));
+                    write_dword(state.xmm[reg_index], 3,
+                                read_dword(source, (immediate >> 6U) & 3U));
+                }
+            } else if (second == 0x6f) {
                 state.xmm[reg_index] = source;
             } else if (second == 0x7f) {
                 if (register_operand) state.xmm[rm_index] = state.xmm[reg_index];

@@ -2699,6 +2699,54 @@ void test_sse2_packed_compare_and_movemask() {
             "PCMPGTD should use signed 32-bit comparisons");
 }
 
+
+void test_sse2_pshufd_and_shufps() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x2e000, 64};
+    const std::array<std::byte, 6> pshufd{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x70},
+        std::byte{0xc1}, std::byte{0x1b}, std::byte{0xf4}
+    };
+    require(memory.write(0x2e000, pshufd), "PSHUFD program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x2e000;
+    state.control_registers[4] = 1ULL << 9U;
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        const std::uint32_t value = static_cast<std::uint32_t>(lane + 1U);
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            state.xmm[1][lane * 4U + byte] =
+                static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "PSHUFD should execute");
+    const std::array<std::uint32_t, 4> expected{4, 3, 2, 1};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        std::uint32_t actual = 0;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            actual |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(state.xmm[0][lane * 4U + byte]))
+                << (byte * 8U);
+        require(actual == expected[lane],
+                "PSHUFD should select dword lanes using its immediate control byte");
+    }
+
+    const std::array<std::byte, 5> shufps{
+        std::byte{0x0f}, std::byte{0xc6}, std::byte{0xc1},
+        std::byte{0xe4}, std::byte{0xf4}
+    };
+    require(memory.write(0x2e020, shufps), "SHUFPS program should load");
+    meridian::cpu::CpuState float_shuffle{};
+    float_shuffle.rip = 0x2e020;
+    float_shuffle.control_registers[4] = 1ULL << 9U;
+    float_shuffle.xmm[0] = state.xmm[1];
+    float_shuffle.xmm[1] = state.xmm[1];
+    require(interpreter.step(float_shuffle, memory) == StepResult::Executed,
+            "SHUFPS should execute");
+    require(float_shuffle.xmm[0] == state.xmm[1],
+            "SHUFPS immediate 0xe4 should preserve the selected 0,1,2,3 lane order");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2759,6 +2807,7 @@ int main() {
         test_sse_sse2_xmm_instructions();
         test_sse2_packed_integer_arithmetic();
         test_sse2_packed_compare_and_movemask();
+        test_sse2_pshufd_and_shufps();
 
         test_cpu_state_reset();
         test_interpreter();

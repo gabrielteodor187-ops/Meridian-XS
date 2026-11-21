@@ -38,7 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
-- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB, with OSFXSR gating and MOVDQA alignment checks.
+- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -314,3 +314,8 @@ Added PCMPEQB/PCMPEQW/PCMPEQD and PCMPGTB/PCMPGTW/PCMPGTD, with signed compariso
 ### v0.57.1 — Signed compare fixture correction
 
 Corrected the first PCMPGTD test lane so the signed greater-than case compares positive 2 against positive 1. The earlier fixture compared -1 against 1 while expecting a true result. Interpreter behavior is unchanged.
+
+
+### v0.58.0 — SSE2/SSE lane shuffles
+
+Added PSHUFD (dword shuffle with imm8 lane selection) and SHUFPS (two-source dword shuffle). Memory-source effective-address decoding accounts for the trailing immediate byte, including RIP-relative addressing. Tests cover reverse-order PSHUFD selection and the identity SHUFPS control pattern. The SIMD implementation remains a deliberately incomplete subset.
