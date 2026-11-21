@@ -3058,8 +3058,9 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     // ADD/SUB/XOR/CMP between a register and a memory destination.
     // Supports base, signed displacement, SIB-scaled index, no-base SIB,
     // and RIP-relative memory operands.
-    if (opcode == 0x01 || opcode == 0x09 || opcode == 0x21 ||
-        opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
+    if (opcode == 0x01 || opcode == 0x09 || opcode == 0x11 ||
+        opcode == 0x19 || opcode == 0x21 || opcode == 0x29 ||
+        opcode == 0x31 || opcode == 0x39) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
@@ -3074,6 +3075,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 std::uint16_t result = 0;
                 switch (opcode) {
                 case 0x01: result = static_cast<std::uint16_t>(lhs + rhs); update_add_flags16(state, lhs, rhs, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
+                case 0x11: { const bool carry_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint16_t>(lhs + rhs + (carry_in ? 1U : 0U)); update_adc_flags16(state, lhs, rhs, carry_in, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break; }
+                case 0x19: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint16_t>(lhs - rhs - (borrow_in ? 1U : 0U)); update_sbb_flags16(state, lhs, rhs, borrow_in, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break; }
                 case 0x09: result = static_cast<std::uint16_t>(lhs | rhs); update_logic_flags16(state, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
                 case 0x21: result = static_cast<std::uint16_t>(lhs & rhs); update_logic_flags16(state, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
                 case 0x29: result = static_cast<std::uint16_t>(lhs - rhs); update_sub_flags16(state, lhs, rhs, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
@@ -3087,6 +3090,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 std::uint64_t result = 0;
                 switch (opcode) {
                 case 0x01: result = lhs + rhs; update_add_flags(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x11: { const bool carry_in = (state.rflags & flag_cf) != 0; result = lhs + rhs + (carry_in ? 1ULL : 0ULL); update_adc_flags(state, lhs, rhs, carry_in, result); state.gpr[destination_reg] = result; break; }
+                case 0x19: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = lhs - rhs - (borrow_in ? 1ULL : 0ULL); update_sbb_flags(state, lhs, rhs, borrow_in, result); state.gpr[destination_reg] = result; break; }
                 case 0x09: result = lhs | rhs; update_logic_flags(state, result); state.gpr[destination_reg] = result; break;
                 case 0x21: result = lhs & rhs; update_logic_flags(state, result); state.gpr[destination_reg] = result; break;
                 case 0x29: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
@@ -3100,6 +3105,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 std::uint32_t result = 0;
                 switch (opcode) {
                 case 0x01: result = lhs + rhs; update_add_flags32(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x11: { const bool carry_in = (state.rflags & flag_cf) != 0; result = lhs + rhs + (carry_in ? 1U : 0U); update_adc_flags32(state, lhs, rhs, carry_in, result); state.gpr[destination_reg] = result; break; }
+                case 0x19: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = lhs - rhs - (borrow_in ? 1U : 0U); update_sbb_flags32(state, lhs, rhs, borrow_in, result); state.gpr[destination_reg] = result; break; }
                 case 0x09: result = lhs | rhs; update_logic_flags32(state, result); state.gpr[destination_reg] = result; break;
                 case 0x21: result = lhs & rhs; update_logic_flags32(state, result); state.gpr[destination_reg] = result; break;
                 case 0x29: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
@@ -3171,6 +3178,18 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 result = static_cast<std::uint16_t>(lhs + rhs);
                 update_add_flags16(state, lhs, rhs, result);
                 break;
+            case 0x11: {
+                const bool carry_in = (state.rflags & flag_cf) != 0;
+                result = static_cast<std::uint16_t>(lhs + rhs + (carry_in ? 1U : 0U));
+                update_adc_flags16(state, lhs, rhs, carry_in, result);
+                break;
+            }
+            case 0x19: {
+                const bool borrow_in = (state.rflags & flag_cf) != 0;
+                result = static_cast<std::uint16_t>(lhs - rhs - (borrow_in ? 1U : 0U));
+                update_sbb_flags16(state, lhs, rhs, borrow_in, result);
+                break;
+            }
             case 0x09:
                 result = static_cast<std::uint16_t>(lhs | rhs);
                 update_logic_flags16(state, result);
@@ -3208,6 +3227,18 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 result = lhs + rhs;
                 update_add_flags(state, lhs, rhs, result);
                 break;
+            case 0x11: {
+                const bool carry_in = (state.rflags & flag_cf) != 0;
+                result = lhs + rhs + (carry_in ? 1ULL : 0ULL);
+                update_adc_flags(state, lhs, rhs, carry_in, result);
+                break;
+            }
+            case 0x19: {
+                const bool borrow_in = (state.rflags & flag_cf) != 0;
+                result = lhs - rhs - (borrow_in ? 1ULL : 0ULL);
+                update_sbb_flags(state, lhs, rhs, borrow_in, result);
+                break;
+            }
             case 0x09:
                 result = lhs | rhs;
                 update_logic_flags(state, result);
@@ -3244,6 +3275,18 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 result = lhs + rhs;
                 update_add_flags32(state, lhs, rhs, result);
                 break;
+            case 0x11: {
+                const bool carry_in = (state.rflags & flag_cf) != 0;
+                result = lhs + rhs + (carry_in ? 1U : 0U);
+                update_adc_flags32(state, lhs, rhs, carry_in, result);
+                break;
+            }
+            case 0x19: {
+                const bool borrow_in = (state.rflags & flag_cf) != 0;
+                result = lhs - rhs - (borrow_in ? 1U : 0U);
+                update_sbb_flags32(state, lhs, rhs, borrow_in, result);
+                break;
+            }
             case 0x09:
                 result = lhs | rhs;
                 update_logic_flags32(state, result);
