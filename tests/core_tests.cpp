@@ -4830,6 +4830,73 @@ void test_group1_adc_sbb_immediates() {
             "Group-1 qword SBB immediate should update memory");
 }
 
+
+void test_group1_byte_immediates() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33900, 0x100};
+    const std::array<std::byte, 16> register_program{
+        std::byte{0x80}, std::byte{0xd0}, std::byte{0x01},
+        std::byte{0x80}, std::byte{0xd8}, std::byte{0x01},
+        std::byte{0x80}, std::byte{0xd4}, std::byte{0x01},
+        std::byte{0x80}, std::byte{0xdc}, std::byte{0x01},
+        std::byte{0x40}, std::byte{0x80}, std::byte{0xd4}, std::byte{0x01}
+    };
+    const std::array<std::byte, 8> memory_program{
+        std::byte{0x80}, std::byte{0x57}, std::byte{0x02}, std::byte{0x01},
+        std::byte{0x80}, std::byte{0x5f}, std::byte{0x02}, std::byte{0x01}
+    };
+    require(memory.write(0x33900, register_program), "byte immediate register program should load");
+    require(memory.write(0x33920, memory_program), "byte immediate memory program should load");
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState state{};
+    constexpr std::uint64_t cf = 1ULL;
+
+    state.rip = 0x33900;
+    state.gpr[0] = 0x11223344556677feULL;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x1122334455667700ULL && (state.rflags & cf) != 0,
+            "byte ADC AL should consume carry and preserve upper register bits");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x11223344556677feULL && (state.rflags & cf) != 0,
+            "byte SBB AL should consume borrow and preserve upper register bits");
+
+    state.rip = 0x33906;
+    state.gpr[0] = 0x123456789abc7f00ULL;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x123456789abc8100ULL &&
+            (state.rflags & (1ULL << 11U)) != 0,
+            "legacy byte encoding should address AH and detect signed overflow");
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x123456789abc7f00ULL &&
+            (state.rflags & (1ULL << 11U)) != 0,
+            "legacy SBB byte encoding should write AH and detect signed overflow");
+
+    state.rip = 0x3390c;
+    state.gpr[4] = 0x100ULL;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[4] == 0x102ULL,
+            "REX byte encoding should address SPL rather than AH");
+
+    state.rip = 0x33920;
+    state.gpr[7] = 0x33980;
+    require(memory.write_le<std::uint8_t>(0x33982, 0xffU),
+            "byte ADC memory target should initialize");
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33982).value_or(1) == 1U,
+            "byte ADC immediate should update memory and propagate carry");
+    require(memory.write_le<std::uint8_t>(0x33982, 0),
+            "byte SBB memory target should reset");
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33982).value_or(0) == 0xfeU,
+            "byte SBB immediate should update memory and propagate borrow");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4927,6 +4994,7 @@ int main() {
         test_adc_sbb_register_and_memory_forms();
         test_16bit_group1_immediates();
         test_group1_adc_sbb_immediates();
+        test_group1_byte_immediates();
 
         test_cpu_state_reset();
         test_interpreter();
