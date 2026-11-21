@@ -6,6 +6,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 
 ## Implemented
 
+- TEST r/m16/32/64,r16/32/64 now supports register and memory operands, with operand-width-aware logical flags and no destination writes.
+
 - Byte TEST operations: TEST r/m8,r8 (84) and TEST r/m8,imm8 (F6 /0), with register and supported memory operands; flags update without modifying operands.
 
 - Byte MOV operations: register/register and register/memory in both directions, MOV r8,imm8, and MOV r/m8,imm8, including correct legacy high-byte and REX low-byte register selection.
@@ -79,6 +81,11 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 4. Research graphics command translation and console-specific interfaces using public documentation.
 
 All implementation is intended to be original code based on public information. No proprietary SDKs, firmware, keys, or game data are included.
+
+
+### v0.94.0 — Wide TEST memory operands
+
+Extended TEST r/m16/32/64,r16/32/64 (85) to support memory operands in addition to register-direct forms. The interpreter reads the selected operand width and updates logical flags without writing to the source. Added memory regression coverage at 16-, 32-, and 64-bit widths.
 
 
 ### v0.93.0 — Byte TEST operations
