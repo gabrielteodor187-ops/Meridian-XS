@@ -408,9 +408,14 @@ Added XGETBV and XSETBV for XCR0 index 0, including CR4.OSXSAVE checks, XSETBV p
 
 ### v0.68.0 — XSAVE/XRSTOR and YMM upper-half state
 
-Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. AVX instructions themselves are not yet implemented or advertised.
+Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. Initial AVX VEX.0F support: 128-/256-bit VADDPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. AVX2 is not implemented.
 
 
 ### v0.68.1 — CPUID xstate feature tests
 
 Updated the basic-leaf maximum assertion to include leaf 0xD and added tests for XSAVE/OSXSAVE feature reporting and the leaf 0xD supported/enabled state sizes. AVX remains unadvertised until VEX instruction execution is implemented.
+
+
+### v0.69.0 — Initial AVX VEX instruction subset
+
+Added two-byte and three-byte VEX prefix decoding for the 0F opcode map and initial 128-/256-bit AVX instructions: VADDPS, VSUBPS, VMULPS, VDIVPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. VEX.128 writes clear the destination's upper YMM half; VEX.256 operations process all eight single-precision lanes. Execution requires OSXSAVE, OSFXSR, and XCR0 x87/SSE/AVX state enablement. Tests cover 128-/256-bit VADDPS and zero-upper behavior. This is not a complete AVX implementation, and AVX2 remains unsupported and unadvertised.

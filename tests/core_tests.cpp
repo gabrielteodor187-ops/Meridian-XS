@@ -3485,6 +3485,101 @@ void test_cpuid_xsave_leaf_and_osxsave() {
             "CPUID leaf 0xD should report the supported and enabled xstate size");
 }
 
+
+void test_avx_vex_128_256_and_zero_upper() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32000, 0x200};
+    const std::array<std::byte, 4> vaddps128{
+        std::byte{0xc5}, std::byte{0xf0}, std::byte{0x58}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 4> vaddps256{
+        std::byte{0xc5}, std::byte{0xf4}, std::byte{0x58}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 3> vzeroupper{
+        std::byte{0xc5}, std::byte{0x80}, std::byte{0x77}
+    };
+    const std::array<std::byte, 3> vzeroall{
+        std::byte{0xc5}, std::byte{0x84}, std::byte{0x77}
+    };
+    require(memory.write(0x32000, vaddps128), "VADDPS.128 instruction should load");
+    require(memory.write(0x32010, vaddps256), "VADDPS.256 instruction should load");
+    require(memory.write(0x32020, vzeroupper), "VZEROUPPER instruction should load");
+    require(memory.write(0x32030, vzeroall), "VZEROALL instruction should load");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32000;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    const std::array<float, 8> left{1, 2, 3, 4, 5, 6, 7, 8};
+    const std::array<float, 8> right{10, 20, 30, 40, 50, 60, 70, 80};
+    for (std::size_t lane = 0; lane < 8; ++lane) {
+        const auto a = std::bit_cast<std::uint32_t>(left[lane]);
+        const auto b = std::bit_cast<std::uint32_t>(right[lane]);
+        auto& dest = lane < 4 ? state.xmm[1] : state.ymm_high[1];
+        auto& src = lane < 4 ? state.xmm[2] : state.ymm_high[2];
+        const std::size_t offset = (lane % 4U) * 4U;
+        for (std::size_t byte = 0; byte < 4; ++byte) {
+            dest[offset + byte] = static_cast<std::byte>((a >> (byte * 8U)) & 0xffU);
+            src[offset + byte] = static_cast<std::byte>((b >> (byte * 8U)) & 0xffU);
+        }
+    }
+    state.ymm_high[0].fill(std::byte{0xaa});
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VADDPS.128 should execute");
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        std::uint32_t bits = 0;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            bits |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(state.xmm[0][lane * 4U + byte]))
+                << (byte * 8U);
+        require(std::bit_cast<float>(bits) == left[lane] + right[lane],
+                "VADDPS.128 should compute four packed lanes");
+    }
+    for (const auto byte : state.ymm_high[0])
+        require(byte == std::byte{0},
+                "VEX.128 destination writes should zero the upper YMM half");
+
+    state.rip = 0x32010;
+    state.ymm_high[0].fill(std::byte{0xaa});
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VADDPS.256 should execute");
+    for (std::size_t lane = 4; lane < 8; ++lane) {
+        std::uint32_t bits = 0;
+        const std::size_t offset = (lane - 4U) * 4U;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            bits |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(state.ymm_high[0][offset + byte]))
+                << (byte * 8U);
+        require(std::bit_cast<float>(bits) == left[lane] + right[lane],
+                "VADDPS.256 should compute upper packed lanes");
+    }
+
+    state.rip = 0x32020;
+    for (auto& reg : state.ymm_high) reg.fill(std::byte{0xaa});
+    const auto low_before = state.xmm;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VZEROUPPER should execute");
+    require(state.xmm == low_before,
+            "VZEROUPPER should preserve all low XMM halves");
+    for (const auto& reg : state.ymm_high)
+        for (const auto byte : reg)
+            require(byte == std::byte{0},
+                    "VZEROUPPER should clear every YMM upper half");
+
+    state.rip = 0x32030;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VZEROALL should execute");
+    for (const auto& reg : state.xmm)
+        for (const auto byte : reg)
+            require(byte == std::byte{0},
+                    "VZEROALL should clear all XMM low halves");
+    for (const auto& reg : state.ymm_high)
+        for (const auto byte : reg)
+            require(byte == std::byte{0},
+                    "VZEROALL should clear all YMM upper halves");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3562,6 +3657,7 @@ int main() {
         test_xgetbv_xsetbv_xcr0();
         test_xsave_xrstor_ymm_state();
         test_cpuid_xsave_leaf_and_osxsave();
+        test_avx_vex_128_256_and_zero_upper();
 
         test_cpu_state_reset();
         test_interpreter();

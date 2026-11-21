@@ -233,6 +233,152 @@ bool condition_true(std::uint8_t condition, std::uint64_t flags) noexcept {
     return false;
 }
 
+
+struct VexPrefix {
+    bool r{false};
+    bool x{false};
+    bool b{false};
+    bool w{false};
+    bool l{false};
+    std::uint8_t map{0};
+    std::uint8_t pp{0};
+    std::uint8_t vvvv{0};
+};
+
+template <typename Memory>
+StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
+                       std::uint8_t opcode, const VexPrefix& vex) noexcept {
+    if (vex.map != 1 || vex.w || vex.pp != 0)
+        return StepResult::UnsupportedInstruction;
+    if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+        (state.control_registers[4] & ((1ULL << 9U) | (1ULL << 18U))) !=
+            ((1ULL << 9U) | (1ULL << 18U)) ||
+        (state.xcr0 & 6ULL) != 6ULL)
+        return StepResult::UnsupportedInstruction;
+
+    const std::size_t width = vex.l ? 32U : 16U;
+    if (opcode == 0x77) { // VZEROUPPER / VZEROALL
+        if (vex.vvvv != 0x0fU) return StepResult::UnsupportedInstruction;
+        if (vex.l) {
+            for (auto& reg : state.xmm) reg.fill(std::byte{0});
+            for (auto& reg : state.ymm_high) reg.fill(std::byte{0});
+        } else {
+            for (auto& reg : state.ymm_high) reg.fill(std::byte{0});
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
+    const bool is_move_load = opcode == 0x10 || opcode == 0x28;
+    const bool is_move_store = opcode == 0x11 || opcode == 0x29;
+    const bool aligned_move = opcode == 0x28 || opcode == 0x29;
+    const bool is_xor = opcode == 0x57;
+    const bool is_add = opcode == 0x58;
+    const bool is_sub = opcode == 0x5c;
+    const bool is_mul = opcode == 0x59;
+    const bool is_div = opcode == 0x5e;
+    if (!(is_move_load || is_move_store || is_xor ||
+          is_add || is_sub || is_mul || is_div))
+        return StepResult::UnsupportedInstruction;
+
+    std::uint8_t modrm = 0;
+    if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+    const std::size_t destination =
+        static_cast<std::size_t>((modrm >> 3U) & 7U) + (vex.r ? 8U : 0U);
+    const std::size_t rm_index =
+        static_cast<std::size_t>(modrm & 7U) + (vex.b ? 8U : 0U);
+    const bool register_operand = (modrm >> 6U) == 3U;
+    std::uint64_t address = 0;
+
+    std::array<std::byte, 32> source2{};
+    if (register_operand) {
+        std::copy(state.xmm[rm_index].begin(), state.xmm[rm_index].end(),
+                  source2.begin());
+        if (vex.l)
+            std::copy(state.ymm_high[rm_index].begin(), state.ymm_high[rm_index].end(),
+                      source2.begin() + 16);
+    } else {
+        if (!decode_effective_address(state, memory, pc, modrm,
+                                      vex.b, vex.x, 0, address))
+            return StepResult::MemoryFault;
+        if (aligned_move && (address & (width - 1U)) != 0)
+            return StepResult::GeneralProtectionFault;
+        if (is_move_load || is_xor || is_add || is_sub || is_mul || is_div) {
+            if (!memory.read(address,
+                    std::span<std::byte>{source2}.first(width)))
+                return StepResult::MemoryFault;
+        }
+    }
+
+    if (is_move_load) {
+        std::copy_n(source2.begin(), 16, state.xmm[destination].begin());
+        if (vex.l)
+            std::copy_n(source2.begin() + 16, 16, state.ymm_high[destination].begin());
+        else
+            state.ymm_high[destination].fill(std::byte{0});
+    } else if (is_move_store) {
+        std::array<std::byte, 32> source{};
+        std::copy(state.xmm[destination].begin(), state.xmm[destination].end(),
+                  source.begin());
+        if (vex.l)
+            std::copy(state.ymm_high[destination].begin(),
+                      state.ymm_high[destination].end(), source.begin() + 16);
+        if (register_operand) {
+            std::copy_n(source.begin(), 16, state.xmm[rm_index].begin());
+            if (vex.l)
+                std::copy_n(source.begin() + 16, 16, state.ymm_high[rm_index].begin());
+            else
+                state.ymm_high[rm_index].fill(std::byte{0});
+        } else if (!memory.write(address,
+                       std::span<const std::byte>{source}.first(width))) {
+            return StepResult::MemoryFault;
+        }
+    } else {
+        std::array<std::byte, 32> source1{};
+        std::copy(state.xmm[vex.vvvv].begin(), state.xmm[vex.vvvv].end(),
+                  source1.begin());
+        if (vex.l)
+            std::copy(state.ymm_high[vex.vvvv].begin(),
+                      state.ymm_high[vex.vvvv].end(), source1.begin() + 16);
+        std::array<std::byte, 32> result{};
+        if (is_xor) {
+            for (std::size_t i = 0; i < width; ++i)
+                result[i] = source1[i] ^ source2[i];
+        } else {
+            for (std::size_t lane = 0; lane < width / 4U; ++lane) {
+                std::uint32_t lhs_bits = 0;
+                std::uint32_t rhs_bits = 0;
+                for (std::size_t byte = 0; byte < 4; ++byte) {
+                    lhs_bits |= static_cast<std::uint32_t>(
+                        std::to_integer<unsigned char>(source1[lane * 4U + byte]))
+                        << (byte * 8U);
+                    rhs_bits |= static_cast<std::uint32_t>(
+                        std::to_integer<unsigned char>(source2[lane * 4U + byte]))
+                        << (byte * 8U);
+                }
+                const float lhs = std::bit_cast<float>(lhs_bits);
+                const float rhs = std::bit_cast<float>(rhs_bits);
+                float value = 0.0F;
+                if (is_add) value = lhs + rhs;
+                else if (is_sub) value = lhs - rhs;
+                else if (is_mul) value = lhs * rhs;
+                else value = lhs / rhs;
+                const std::uint32_t bits = std::bit_cast<std::uint32_t>(value);
+                for (std::size_t byte = 0; byte < 4; ++byte)
+                    result[lane * 4U + byte] =
+                        static_cast<std::byte>((bits >> (byte * 8U)) & 0xffU);
+            }
+        }
+        std::copy_n(result.begin(), 16, state.xmm[destination].begin());
+        if (vex.l)
+            std::copy_n(result.begin() + 16, 16, state.ymm_high[destination].begin());
+        else
+            state.ymm_high[destination].fill(std::byte{0});
+    }
+    state.rip = pc;
+    return StepResult::Executed;
+}
+
 } // namespace
 
 template <typename Memory>
@@ -240,6 +386,34 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     std::uint64_t pc = state.rip;
     std::uint8_t opcode = 0;
     if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
+
+    if (opcode == 0xc5 || opcode == 0xc4) {
+        VexPrefix vex{};
+        if (opcode == 0xc5) {
+            std::uint8_t second = 0;
+            if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+            vex.r = (second & 0x80U) == 0;
+            vex.map = 1;
+            vex.vvvv = static_cast<std::uint8_t>((~(second >> 3U)) & 0x0fU);
+            vex.l = (second & 0x04U) != 0;
+            vex.pp = static_cast<std::uint8_t>(second & 0x03U);
+        } else {
+            std::uint8_t second = 0;
+            std::uint8_t third = 0;
+            if (!fetch8(memory, pc, second) || !fetch8(memory, pc, third))
+                return StepResult::MemoryFault;
+            vex.r = (second & 0x80U) == 0;
+            vex.x = (second & 0x40U) == 0;
+            vex.b = (second & 0x20U) == 0;
+            vex.map = static_cast<std::uint8_t>(second & 0x1fU);
+            vex.w = (third & 0x80U) != 0;
+            vex.vvvv = static_cast<std::uint8_t>((~(third >> 3U)) & 0x0fU);
+            vex.l = (third & 0x04U) != 0;
+            vex.pp = static_cast<std::uint8_t>(third & 0x03U);
+        }
+        if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
+        return execute_vex(state, memory, pc, opcode, vex);
+    }
 
     if (opcode == 0x90) { // NOP
         state.rip = pc;
