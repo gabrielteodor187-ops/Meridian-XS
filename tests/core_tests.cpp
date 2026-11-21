@@ -4736,6 +4736,100 @@ void test_16bit_group1_immediates() {
             "16-bit immediate program should reach HLT");
 }
 
+
+void test_group1_adc_sbb_immediates() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33800, 0x300};
+    const std::array<std::byte, 22> register_program{
+        std::byte{0x66}, std::byte{0x83}, std::byte{0xd0}, std::byte{0x00},
+        std::byte{0x66}, std::byte{0x83}, std::byte{0xd8}, std::byte{0x00},
+        std::byte{0x83}, std::byte{0xd0}, std::byte{0x00},
+        std::byte{0x83}, std::byte{0xd8}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xd0}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0xd8}, std::byte{0x00}
+    };
+    const std::array<std::byte, 28> memory_program{
+        std::byte{0x66}, std::byte{0x83}, std::byte{0x57}, std::byte{0x02}, std::byte{0x00},
+        std::byte{0x66}, std::byte{0x83}, std::byte{0x5f}, std::byte{0x02}, std::byte{0x00},
+        std::byte{0x83}, std::byte{0x57}, std::byte{0x04}, std::byte{0x00},
+        std::byte{0x83}, std::byte{0x5f}, std::byte{0x04}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0x57}, std::byte{0x08}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0x5f}, std::byte{0x08}, std::byte{0x00}
+    };
+    require(memory.write(0x33800, register_program), "Group-1 ADC/SBB register program should load");
+    require(memory.write(0x33840, memory_program), "Group-1 ADC/SBB memory program should load");
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState state{};
+    constexpr std::uint64_t cf = 1ULL;
+
+    state.rip = 0x33800;
+    state.gpr[0] = 0x123456789abcffffULL;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x123456789abc0000ULL && (state.rflags & cf) != 0,
+            "Group-1 16-bit ADC immediate should consume carry and preserve upper bits");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x123456789abcffffULL && (state.rflags & cf) != 0,
+            "Group-1 16-bit SBB immediate should consume borrow and preserve upper bits");
+
+    state.rip = 0x33808;
+    state.gpr[0] = 0xffffffffULL;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0 && (state.rflags & cf) != 0,
+            "Group-1 32-bit ADC immediate should wrap and set carry");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0xffffffffULL && (state.rflags & cf) != 0,
+            "Group-1 32-bit SBB immediate should wrap and set borrow");
+
+    state.rip = 0x3380e;
+    state.gpr[0] = 0xffffffffffffffffULL;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0 && (state.rflags & cf) != 0,
+            "Group-1 64-bit ADC immediate should wrap and set carry");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0xffffffffffffffffULL && (state.rflags & cf) != 0,
+            "Group-1 64-bit SBB immediate should wrap and set borrow");
+
+    state.rip = 0x33840;
+    state.gpr[7] = 0x33a00;
+    require(memory.write_le<std::uint16_t>(0x33a02, 0xffffU), "Group-1 word ADC target should initialize");
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x33a02).value_or(1) == 0,
+            "Group-1 word ADC immediate should update memory");
+    require(memory.write_le<std::uint16_t>(0x33a02, 0), "Group-1 word SBB target should reset");
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x33a02).value_or(0) == 0xffffU,
+            "Group-1 word SBB immediate should update memory");
+
+    require(memory.write_le<std::uint32_t>(0x33a04, 0xffffffffU), "Group-1 dword ADC target should initialize");
+    state.rip = 0x3384a;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint32_t>(0x33a04).value_or(1) == 0,
+            "Group-1 dword ADC immediate should update memory");
+    require(memory.write_le<std::uint32_t>(0x33a04, 0), "Group-1 dword SBB target should reset");
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint32_t>(0x33a04).value_or(0) == 0xffffffffU,
+            "Group-1 dword SBB immediate should update memory");
+
+    require(memory.write_le<std::uint64_t>(0x33a08, 0xffffffffffffffffULL), "Group-1 qword ADC target should initialize");
+    state.rip = 0x33852;
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint64_t>(0x33a08).value_or(1) == 0,
+            "Group-1 qword ADC immediate should update memory");
+    require(memory.write_le<std::uint64_t>(0x33a08, 0), "Group-1 qword SBB target should reset");
+    state.rflags |= cf;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint64_t>(0x33a08).value_or(1) == 0xffffffffffffffffULL,
+            "Group-1 qword SBB immediate should update memory");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4832,6 +4926,7 @@ int main() {
         test_16bit_register_arithmetic();
         test_adc_sbb_register_and_memory_forms();
         test_16bit_group1_immediates();
+        test_group1_adc_sbb_immediates();
 
         test_cpu_state_reset();
         test_interpreter();
