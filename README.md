@@ -499,3 +499,8 @@ Added MOVZX/MOVSX from 8-/16-bit register or memory sources into 16-/32-/64-bit 
 ### v0.81.0 — Signed IMUL forms
 
 Added two-operand IMUL r16/32/64,r/m and immediate IMUL forms using imm8 or imm16/imm32. Results are truncated to the destination width, 32-bit writes zero-extend, 16-bit writes preserve upper register bits, and CF/OF report signed overflow. The 64-bit overflow check avoids signed-overflow undefined behavior. Tests cover negative products, immediate sign extension, and CF/OF overflow behavior.
+
+
+### v0.81.1 — IMUL immediate fetch and signed conversion
+
+Replaced the unavailable generic immediate-fetch helper with explicit execute-permission byte fetches for 16-/32-bit immediates. Used bit-preserving conversions for signed immediate and operand interpretation, avoiding implementation-defined narrowing conversions.

@@ -174,11 +174,11 @@ SignedMultiplyResult signed_multiply(std::uint64_t lhs, std::uint64_t rhs,
         return {lhs * rhs, overflow};
     }
     const std::int64_t a = width == 2U
-        ? static_cast<std::int16_t>(lhs)
-        : static_cast<std::int32_t>(lhs);
+        ? std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(lhs))
+        : std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(lhs));
     const std::int64_t b = width == 2U
-        ? static_cast<std::int16_t>(rhs)
-        : static_cast<std::int32_t>(rhs);
+        ? std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(rhs))
+        : std::bit_cast<std::int32_t>(static_cast<std::uint32_t>(rhs));
     const std::int64_t product = a * b;
     const std::int64_t minimum = width == 2U
         ? std::numeric_limits<std::int16_t>::min()
@@ -954,17 +954,25 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             std::uint8_t raw = 0;
             if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
             immediate = static_cast<std::uint64_t>(
-                static_cast<std::int64_t>(static_cast<std::int8_t>(raw)));
+                static_cast<std::int64_t>(std::bit_cast<std::int8_t>(raw)));
         } else if (width == 2U) {
-            std::uint16_t raw = 0;
-            if (!fetch_le(memory, pc, raw)) return StepResult::MemoryFault;
+            std::uint8_t low = 0;
+            std::uint8_t high = 0;
+            if (!fetch8(memory, pc, low) || !fetch8(memory, pc, high))
+                return StepResult::MemoryFault;
+            const std::uint16_t raw = static_cast<std::uint16_t>(low) |
+                static_cast<std::uint16_t>(static_cast<std::uint16_t>(high) << 8U);
             immediate = static_cast<std::uint64_t>(
-                static_cast<std::int64_t>(static_cast<std::int16_t>(raw)));
+                static_cast<std::int64_t>(std::bit_cast<std::int16_t>(raw)));
         } else {
             std::uint32_t raw = 0;
-            if (!fetch_le(memory, pc, raw)) return StepResult::MemoryFault;
+            for (std::size_t byte = 0; byte < 4; ++byte) {
+                std::uint8_t part = 0;
+                if (!fetch8(memory, pc, part)) return StepResult::MemoryFault;
+                raw |= static_cast<std::uint32_t>(part) << (byte * 8U);
+            }
             immediate = static_cast<std::uint64_t>(
-                static_cast<std::int64_t>(static_cast<std::int32_t>(raw)));
+                static_cast<std::int64_t>(std::bit_cast<std::int32_t>(raw)));
         }
         const std::uint64_t mask = width == 8U ? UINT64_MAX :
                                    width == 4U ? 0xffffffffULL : 0xffffULL;
