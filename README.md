@@ -32,7 +32,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - 32-bit and 64-bit memory-destination ADD, SUB, XOR, and CMP using base, disp8, disp32, SIB-scaled index, no-base SIB, and RIP-relative addressing.
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
-- CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries.
+- CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -193,3 +193,8 @@ Added the new page-table walker header to the core test translation unit and cla
 ### v0.42.0 — CPU execution through x86-64 page tables
 
 Added X64PagedMemory, a virtual-memory backend that translates each CPU fetch/read/write through the four-level page tables rooted at CR3. The interpreter now has an overload for this backend, so instruction fetches honor NX and data writes honor page-level RW permissions. Range validation occurs before writes to prevent partial cross-page updates. End-to-end tests execute MOV, ADD, and HLT from a virtual code address while loading data from a separate virtual page, then verify NX fetch denial and read-only write denial. TLBs, page-fault error codes, CR0/CR4/EFER control-register state, and privilege transitions are still not implemented.
+
+
+### v0.43.0 — Software TLB and invalidation
+
+Added a small direct-mapped 64-entry translation cache to X64PagedMemory. Cached 4 KiB virtual-page translations retain the effective RW/US/NX permissions from the full page walk. Added INVLPG-style single-page invalidation, full TLB flush, and paging-context updates that flush when CR3 or permission mode changes. Tests verify stale cached mappings persist until invalidated and that invalidation exposes a remapped physical page. This is a simple functional TLB model; it does not model multi-core shootdowns, global pages, PCID, or hardware replacement policy.

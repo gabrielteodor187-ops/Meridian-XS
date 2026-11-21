@@ -61,7 +61,8 @@ std::optional<X64PageTranslation> X64PageTableWalker::translate(
                 (user_mode || write_protect)) return std::nullopt;
             if (access == X64MemoryAccess::Execute && !executable) return std::nullopt;
             return X64PageTranslation{
-                physical_base | (virtual_address & (page_size - 1U)), page_size};
+                physical_base | (virtual_address & (page_size - 1U)), page_size,
+                writable, user_accessible, executable};
         }
 
         if (level == 3) {
@@ -72,7 +73,8 @@ std::optional<X64PageTranslation> X64PageTableWalker::translate(
                 (user_mode || write_protect)) return std::nullopt;
             if (access == X64MemoryAccess::Execute && !executable) return std::nullopt;
             return X64PageTranslation{
-                physical_base | (virtual_address & 0xfffU), 1ULL << 12U};
+                physical_base | (virtual_address & 0xfffU), 1ULL << 12U,
+                writable, user_accessible, executable};
         }
 
         if (large_page) return std::nullopt;

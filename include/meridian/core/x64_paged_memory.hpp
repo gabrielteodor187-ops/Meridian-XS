@@ -4,6 +4,7 @@
 #include "meridian/core/x64_page_table_walker.hpp"
 
 #include <array>
+#include <optional>
 #include <cstddef>
 #include <cstdint>
 #include <span>
@@ -27,6 +28,11 @@ public:
                              std::span<const std::byte> data) noexcept;
     [[nodiscard]] bool fetch(std::uint64_t virtual_address,
                              std::span<std::byte> out) const noexcept;
+
+    void flush_tlb() noexcept;
+    void invalidate_page(std::uint64_t virtual_address) noexcept;
+    void set_context(std::uint64_t cr3, bool user_mode,
+                     bool write_protect, bool nxe_enabled) noexcept;
 
     template <typename T>
         requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
@@ -60,9 +66,22 @@ public:
     }
 
 private:
+    struct TlbEntry {
+        std::uint64_t virtual_page{0};
+        std::uint64_t physical_page{0};
+        bool writable{false};
+        bool user_accessible{false};
+        bool executable{false};
+        bool valid{false};
+    };
+
+    [[nodiscard]] std::optional<std::uint64_t> translate_cached(
+        std::uint64_t virtual_address, X64MemoryAccess access) const noexcept;
     [[nodiscard]] bool validate_range(std::uint64_t address, std::size_t length,
                                       X64MemoryAccess access) const noexcept;
 
+    static constexpr std::size_t tlb_size = 64;
+    mutable std::array<TlbEntry, tlb_size> tlb_{};
     GuestMemory& physical_memory_;
     std::uint64_t cr3_;
     bool user_mode_;

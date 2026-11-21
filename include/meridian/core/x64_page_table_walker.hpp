@@ -16,6 +16,9 @@ enum class X64MemoryAccess {
 struct X64PageTranslation {
     std::uint64_t physical_address{0};
     std::uint64_t page_size{0};
+    bool writable{false};
+    bool user_accessible{false};
+    bool executable{false};
 };
 
 // Four-level x86-64 page-table walker for 48-bit canonical virtual addresses.

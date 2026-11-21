@@ -1858,6 +1858,22 @@ void test_interpreter_through_x64_page_tables() {
             "paged CPU backend should reject writes to a read-only page");
     require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 41,
             "rejected paged write must preserve physical data");
+
+    // TLB entries remain valid until the guest invalidates the page or changes CR3.
+    require(physical.write_le<std::uint32_t>(0xa000, 99),
+            "alternate physical data page should initialize");
+    require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 41,
+            "initial paged read should populate the TLB");
+    require(physical.write_le<std::uint64_t>(0x4008, 0xa000 | present_rw),
+            "data PTE should remap to an alternate physical page");
+    require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 41,
+            "cached translation should remain until explicit invalidation");
+    memory.invalidate_page(0x401000);
+    require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 99,
+            "INVLPG-style invalidation should expose the new physical mapping");
+    memory.set_context(0x1000, false, true, true);
+    require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 99,
+            "unchanged paging context should preserve valid TLB state");
 }
 
 void test_cpu_state_reset() {
