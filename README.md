@@ -34,7 +34,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
 - Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms, INVLPG, SWAPGS, a limited RDMSR/WRMSR bank, basic SYSCALL/SYSRET transitions, conservative CPUID leaves, RDTSC, and RDTSCP.
-- Read-only XVD/XVC header metadata inspection (no decryption or package extraction).
+- Read-only XVD/XVC header and descriptor metadata inspection, including region layout (no decryption or package extraction).
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - CTest-based tests for memory, CPU state, executable-image parsing, and supported instructions.
@@ -272,3 +272,8 @@ Corrected the PE test fixture to retain a mutable loaded-image value while exerc
 ### v0.52.0 — XVD/XVC header metadata inspection
 
 Added a read-only parser for the public XVD header fields used by Xbox One-family and Series X|S XVC package metadata. It recognizes the `msft-xvd` magic and reports format version, volume flags, logical drive size, content type, volume type, declared metadata lengths, and block size. Tests cover XVC content classification, encryption/integrity flags, and malformed/truncated headers. It deliberately does not verify Microsoft signatures, decrypt package regions, access protected keys, or extract encrypted title files. Microsoft documents XVC as the Xbox console package format and notes that console package contents are encrypted; see https://learn.microsoft.com/en-us/gaming/gdk/docs/features/common/packaging/overviews/packaging?view=gdk-2604.
+
+
+### v0.53.0 — XVC descriptor and region metadata
+
+Extended the read-only XVD/XVC inspector to derive the XVC metadata offset from the declared embedded-volume, mutable-data, integrity-tree, and user-data page counts. It reads the descriptor version, initial-play region metadata, and region headers (IDs, flags, descriptions, offsets, and lengths), with strict bounds and count checks. Encryption key material is not read, and no region is decrypted or extracted. Layout research references the public xvdtool format notes; this implementation is independently written and limited to metadata inspection.

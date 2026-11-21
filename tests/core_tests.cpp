@@ -2401,6 +2401,69 @@ void test_xvd_xvc_header_metadata_reader() {
             "non-XVD magic should be rejected");
 }
 
+
+void test_xvc_descriptor_region_metadata() {
+    using meridian::core::XvdContainerReader;
+    std::vector<std::byte> file(0x5000);
+    const auto put16 = [&](std::size_t offset, std::uint16_t value) {
+        file[offset] = static_cast<std::byte>(value & 0xffU);
+        file[offset + 1] = static_cast<std::byte>((value >> 8U) & 0xffU);
+    };
+    const auto put32 = [&](std::size_t offset, std::uint32_t value) {
+        for (std::size_t i = 0; i < 4; ++i)
+            file[offset + i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    };
+    const auto put64 = [&](std::size_t offset, std::uint64_t value) {
+        for (std::size_t i = 0; i < 8; ++i)
+            file[offset + i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    };
+    const char magic[] = "msft-xvd";
+    for (std::size_t i = 0; i < 8; ++i)
+        file[0x200 + i] = static_cast<std::byte>(magic[i]);
+    put32(0x208, 1U << 2U); // Disable integrity tree; leave encryption flag set.
+    put32(0x20c, 3);
+    put64(0x218, 0x1000);
+    put32(0x280, 0);
+    put32(0x284, 1);
+    put32(0x290, 0x2000);
+    put32(0x298, 0xaa000);
+
+    constexpr std::size_t descriptor = 0x3000;
+    put32(descriptor + 0xd10, 1);
+    put32(descriptor + 0xd14, 1);
+    put32(descriptor + 0xd24, 0x1234);
+    put64(descriptor + 0xd28, 0x4000);
+    constexpr std::size_t region = descriptor + 0xda8;
+    put32(region, 0x1234);
+    put16(region + 4, 0xffff);
+    put32(region + 8, 0x10);
+    put32(region + 12, 2);
+    const char description[] = "XVC-MD";
+    for (std::size_t i = 0; i < 6; ++i)
+        put16(region + 0x10 + i * 2, static_cast<std::uint16_t>(description[i]));
+    put64(region + 0x50, 0x8000);
+    put64(region + 0x58, 0x2000);
+    put64(region + 0x60, 0xabcdef);
+
+    const auto info = XvdContainerReader::inspect(file);
+    require(info.has_value(), "valid XVC descriptor should be parsed");
+    require(info->xvc_info_offset == descriptor && info->xvc_info_version == 1,
+            "XVC descriptor location and version should be derived from XVD metadata");
+    require(info->initial_play_region_id == 0x1234 &&
+            info->initial_play_offset == 0x4000,
+            "XVC initial-play metadata should be exposed");
+    require(info->regions.size() == 1 && info->regions[0].id == 0x1234 &&
+            info->regions[0].key_id == 0xffff &&
+            info->regions[0].description == "XVC-MD" &&
+            info->regions[0].offset == 0x8000 &&
+            info->regions[0].length == 0x2000,
+            "XVC region metadata should be parsed without reading key material");
+
+    put32(descriptor + 0xd14, 0xffffffffU);
+    require(!XvdContainerReader::inspect(file),
+            "impossible XVC region counts should be rejected");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2456,6 +2519,7 @@ int main() {
         test_cpuid_rdtsc_and_rdtscp();
         test_pe32_plus_image_loader();
         test_xvd_xvc_header_metadata_reader();
+        test_xvc_descriptor_region_metadata();
 
         test_cpu_state_reset();
         test_interpreter();
