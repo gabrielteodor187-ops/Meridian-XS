@@ -453,7 +453,37 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
-        if (mod == 3) return StepResult::UnsupportedInstruction;
+        if (mod == 3) {
+            const std::size_t source_reg = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                           (rex_r ? 8U : 0U);
+            const std::size_t destination_reg = static_cast<std::size_t>(modrm & 7U) +
+                                                (rex_b ? 8U : 0U);
+            if (rex_w) {
+                const std::uint64_t lhs = state.gpr[destination_reg];
+                const std::uint64_t rhs = state.gpr[source_reg];
+                std::uint64_t result = 0;
+                switch (opcode) {
+                case 0x01: result = lhs + rhs; update_add_flags(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x29: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x31: result = lhs ^ rhs; update_logic_flags(state, result); state.gpr[destination_reg] = result; break;
+                case 0x39: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); break;
+                default: return StepResult::UnsupportedInstruction;
+                }
+            } else {
+                const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination_reg]);
+                const std::uint32_t rhs = static_cast<std::uint32_t>(state.gpr[source_reg]);
+                std::uint32_t result = 0;
+                switch (opcode) {
+                case 0x01: result = lhs + rhs; update_add_flags32(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x29: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x31: result = lhs ^ rhs; update_logic_flags32(state, result); state.gpr[destination_reg] = result; break;
+                case 0x39: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); break;
+                default: return StepResult::UnsupportedInstruction;
+                }
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
         const std::uint8_t rm_low = static_cast<std::uint8_t>(modrm & 7U);
         if (rm_low == 4 || (mod == 0 && rm_low == 5))
             return StepResult::UnsupportedInstruction;
