@@ -346,3 +346,8 @@ Added 64-bit-mode FXSAVE/FXRSTOR memory forms with 16-byte alignment checks, CR4
 ### v0.60.0 — MOVD/MOVQ scalar XMM transfers
 
 Added 32-bit MOVD and REX.W 64-bit MOVQ transfer forms between general-purpose registers or memory and XMM registers. Loads zero the unused upper XMM bits; 32-bit GPR destinations zero-extend. Tests cover register transfers and a memory-source MOVD. This does not add the separate F3-prefixed XMM-to-XMM MOVQ forms.
+
+
+### v0.60.1 — Prefix dispatch ordering
+
+Moved the strict unsupported-prefix guard after the explicitly supported MOVD/MOVQ and FXSAVE/FXRSTOR handlers. This allows 66-prefixed scalar XMM transfer instructions to reach their decoder while still rejecting unsupported prefixed two-byte opcodes.
