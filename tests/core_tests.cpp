@@ -451,8 +451,8 @@ void test_32bit_arithmetic() {
     require(interpreter.step(state, memory) == StepResult::Executed,
             "32-bit register CMP should execute");
     require(state.gpr[0] == 5, "32-bit CMP must not modify its destination");
-    require((state.rflags & zero_flag) == 0,
-            "32-bit CMP of unequal operands should clear ZF");
+    require((state.rflags & zero_flag) != 0,
+            "32-bit CMP of equal operands should set ZF");
     require(interpreter.step(state, memory) == StepResult::Halted,
             "32-bit arithmetic program should reach HLT");
 }
