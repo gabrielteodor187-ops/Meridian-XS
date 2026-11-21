@@ -1347,6 +1347,52 @@ void test_movzx_virtual_read_permissions() {
             "rejected MOVZX memory read must leave RIP unchanged");
 }
 
+
+void test_immediate_and_or_registers() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x1c000, 32};
+    const std::array<std::byte, 27> program{
+        // OR EAX, 0x0f; AND EAX, 0xf0; OR RAX, -1; AND RAX, 0; HLT.
+        std::byte{0x81}, std::byte{0xc8},
+        std::byte{0x0f}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x81}, std::byte{0xe0},
+        std::byte{0xf0}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xc8},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x48}, std::byte{0x81}, std::byte{0xe0},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x1c000, program), "immediate AND/OR program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x1c000;
+    state.gpr[0] = 0x12340000ULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit OR immediate should execute");
+    require(state.gpr[0] == 0x1234000fULL,
+            "32-bit OR immediate should update the low dword and zero-extend");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit AND immediate should execute");
+    require(state.gpr[0] == 0,
+            "32-bit AND immediate should clear bits outside the mask");
+    require((state.rflags & (1ULL << 6U)) != 0,
+            "zero AND result should set ZF");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit OR immediate should execute");
+    require(state.gpr[0] == 0xffffffffffffffffULL,
+            "64-bit OR immediate should sign-extend imm32");
+    require((state.rflags & ((1ULL << 0U) | (1ULL << 11U))) == 0,
+            "logical OR should clear CF and OF");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit AND immediate should execute");
+    require(state.gpr[0] == 0,
+            "64-bit AND immediate should update the full register");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "immediate AND/OR program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1379,6 +1425,7 @@ int main() {
         test_movsx_movzx_memory_operands();
         test_movsxd_memory_operands();
         test_movzx_virtual_read_permissions();
+        test_immediate_and_or_registers();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

@@ -310,7 +310,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
 
         const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
-        if (operation != 0 && operation != 5 && operation != 6 && operation != 7)
+        if (operation != 0 && operation != 1 && operation != 4 &&
+            operation != 5 && operation != 6 && operation != 7)
             return StepResult::UnsupportedInstruction;
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
@@ -326,6 +327,16 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         case 0:
             result = lhs + rhs;
             update_add_flags32(state, lhs, rhs, result);
+            state.gpr[destination] = result;
+            break;
+        case 1:
+            result = lhs | rhs;
+            update_logic_flags32(state, result);
+            state.gpr[destination] = result;
+            break;
+        case 4:
+            result = lhs & rhs;
+            update_logic_flags32(state, result);
             state.gpr[destination] = result;
             break;
         case 5:
@@ -376,6 +387,16 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         case 0: // ADD
             result = lhs + rhs;
             update_add_flags(state, lhs, rhs, result);
+            state.gpr[destination] = result;
+            break;
+        case 1: // OR
+            result = lhs | rhs;
+            update_logic_flags(state, result);
+            state.gpr[destination] = result;
+            break;
+        case 4: // AND
+            result = lhs & rhs;
+            update_logic_flags(state, result);
             state.gpr[destination] = result;
             break;
         case 5: // SUB

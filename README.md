@@ -117,3 +117,8 @@ Extended MOVSXD to read 32-bit operands from guest memory using base/displacemen
 ### v0.32.0 — MOVZX virtual read-permission coverage
 
 Added a CPU/virtual-address-space test proving that a memory-source MOVZX faults when its source page is mapped write-only. The test also verifies that RIP remains unchanged, confirming that these new load forms use the checked data-read path rather than instruction-fetch access.
+
+
+### v0.33.0 — Immediate AND/OR register operations
+
+Extended the 0x81 immediate arithmetic group with 32-bit and 64-bit register-direct OR and AND operations. Results use the existing logical-flag behavior, clearing CF and OF while updating ZF/SF/PF. Memory-destination forms of these operations are not yet supported.
