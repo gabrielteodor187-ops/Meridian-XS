@@ -6,6 +6,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 
 ## Implemented
 
+- Byte register/register and register/memory ALU forms for ADD, OR, ADC, SBB, AND, SUB, XOR, and CMP in both operand directions, including legacy high-byte and REX low-byte register selection.
+
 - C++23 / CMake project.
 - Bounded guest-memory region with checked reads and writes.
 - Little-endian typed memory access.
@@ -73,6 +75,11 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 4. Research graphics command translation and console-specific interfaces using public documentation.
 
 All implementation is intended to be original code based on public information. No proprietary SDKs, firmware, keys, or game data are included.
+
+
+### v0.91.0 — Byte register and memory ALU operations
+
+Added the byte-width register/register and register/memory opcode families for ADD, OR, ADC, SBB, AND, SUB, XOR, and CMP, supporting both operand directions. Memory operands use the existing effective-address decoder; register forms preserve unaffected bits and correctly distinguish AH/CH/DH/BH from SPL/BPL/SIL/DIL based on REX presence. Added regression coverage for arithmetic, logical operations, memory operands, CMP non-writing behavior, and high-byte/REX byte-register selection. Build and test execution still require confirmation in CI.
 
 
 ### v0.90.0 — Group-1 byte-immediate arithmetic
