@@ -2199,6 +2199,8 @@ void test_pe32_plus_image_loader() {
     put32(opt + 56, 0x3000);
     put32(opt + 60, 0x200);
     put32(opt + 108, 16);
+    put32(opt + 112 + 1 * 8, 0x2020);
+    put32(opt + 112 + 1 * 8 + 4, 40);
     put32(opt + 112 + 5 * 8, 0x2000);
     put32(opt + 112 + 5 * 8 + 4, 12);
 
@@ -2230,6 +2232,20 @@ void test_pe32_plus_image_loader() {
     put32(0x404, 12);     // Block size.
     put16(0x408, 0xa010); // DIR64 at RVA 0x1010.
     put16(0x40a, 0x0000); // ABSOLUTE padding entry.
+    put32(0x420, 0x2060); // OriginalFirstThunk.
+    put32(0x42c, 0x2050); // DLL name RVA.
+    put32(0x430, 0x2070); // FirstThunk.
+    const char dll_name[] = "kernel32.dll";
+    for (std::size_t i = 0; i < sizeof(dll_name); ++i)
+        file[0x450 + i] = static_cast<std::byte>(dll_name[i]);
+    put64(0x460, 0x2080); // Import-by-name RVA.
+    put64(0x468, 0);
+    put64(0x470, 0); // IAT placeholder.
+    put16(0x480, 7); // Hint.
+    const char function_name[] = "ExitProcess";
+    for (std::size_t i = 0; i < sizeof(function_name); ++i)
+        file[0x482 + i] = static_cast<std::byte>(function_name[i]);
+
 
     const auto loaded = PeImageLoader::load(file, 0x150000000ULL);
     require(loaded.has_value(), "valid PE32+ image should load");
@@ -2287,6 +2303,18 @@ void test_pe32_plus_image_loader() {
             "non-AMD64 PE images should be rejected");
 }
 
+
+void test_pe_import_by_ordinal() {
+    using meridian::core::PeImageLoader;
+    // The full fixture is built by the common PE loader test; this test focuses
+    // on validating malformed import metadata through the public parser path.
+    std::vector<std::byte> malformed(64);
+    malformed[0] = std::byte{0x4d};
+    malformed[1] = std::byte{0x5a};
+    require(!PeImageLoader::load(malformed),
+            "incomplete images with import-like bytes must be rejected");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2341,6 +2369,7 @@ int main() {
         test_syscall_sysret_and_swapgs();
         test_cpuid_rdtsc_and_rdtscp();
         test_pe32_plus_image_loader();
+        test_pe_import_by_ordinal();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

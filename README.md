@@ -34,7 +34,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
 - Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms, INVLPG, SWAPGS, a limited RDMSR/WRMSR bank, basic SYSCALL/SYSRET transitions, conservative CPUID leaves, RDTSC, and RDTSCP.
-- Minimal standard PE32+ image mapping with AMD64 validation, section mapping, and DIR64 base relocations (not Xbox XEX package support).
+- Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, and import-table metadata parsing (not Xbox XEX package support or import resolution).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - CTest-based tests for memory, CPU state, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
@@ -246,3 +246,8 @@ Added a standard AMD64 PE32+ image mapper. It validates DOS/PE headers, optional
 ### v0.49.0 — Map loaded PE images into guest memory
 
 Added X64GuestImageMapper. It allocates guest physical pages, maps PE headers and sections at their virtual addresses, derives read/write/execute page permissions from section characteristics, builds four-level page tables, and maps an initial writable NX stack. Added an end-to-end test that loads a synthetic relocated PE32+ image, maps it, executes MOV EAX,42 and HLT through the page-table-backed CPU interpreter, and reads/writes the mapped stack. This is a generic PE test path, not Xbox XEX loading, kernel boot, or commercial-game compatibility.
+
+
+### v0.50.0 — PE import metadata parsing
+
+The PE32+ loader now parses the import directory after mapping and relocation. It enumerates imported module names and named or ordinal import symbols, validates descriptor/thunk termination and image bounds, and preserves hint/ordinal metadata for a future import resolver. It does not load DLLs, resolve symbols, patch the IAT, emulate Windows APIs, or support Xbox XEX containers. Synthetic fixture tests cover a named import.

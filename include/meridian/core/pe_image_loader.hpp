@@ -18,6 +18,18 @@ struct PeSection {
     std::uint32_t characteristics{0};
 };
 
+struct PeImportSymbol {
+    std::string name;
+    std::uint16_t ordinal{0};
+    std::uint16_t hint{0};
+    bool by_ordinal{false};
+};
+
+struct PeImportModule {
+    std::string name;
+    std::vector<PeImportSymbol> symbols;
+};
+
 struct LoadedPeImage {
     std::uint64_t image_base{0};
     std::uint64_t entry_point{0};
@@ -25,6 +37,7 @@ struct LoadedPeImage {
     std::uint32_t headers_size{0};
     std::vector<std::byte> image;
     std::vector<PeSection> sections;
+    std::vector<PeImportModule> imports;
 };
 
 // Minimal standard PE32+ mapper. It does not unpack Xbox XEX containers,

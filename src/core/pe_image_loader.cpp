@@ -9,6 +9,7 @@ namespace {
 
 constexpr std::uint16_t pe32_plus_magic = 0x20b;
 constexpr std::uint16_t amd64_machine = 0x8664;
+constexpr std::uint32_t import_directory_index = 1;
 constexpr std::uint32_t relocation_directory_index = 5;
 constexpr std::uint32_t relocation_type_absolute = 0;
 constexpr std::uint32_t relocation_type_dir64 = 10;
@@ -56,6 +57,95 @@ void write_u64(std::span<std::byte> bytes, std::size_t offset,
 
 bool is_power_of_two(std::uint32_t value) noexcept {
     return value != 0 && (value & (value - 1U)) == 0;
+}
+
+
+bool read_image_string(std::span<const std::byte> image, std::uint32_t rva,
+                       std::string& value) {
+    if (rva >= image.size()) return false;
+    constexpr std::size_t maximum_string_length = 4096;
+    value.clear();
+    for (std::size_t i = 0; i < maximum_string_length; ++i) {
+        const std::size_t offset = static_cast<std::size_t>(rva) + i;
+        if (offset >= image.size()) return false;
+        const unsigned char character =
+            std::to_integer<unsigned char>(image[offset]);
+        if (character == 0) return true;
+        value.push_back(static_cast<char>(character));
+    }
+    return false;
+}
+
+bool parse_imports(LoadedPeImage& loaded, std::uint32_t import_rva,
+                   std::uint32_t import_size) {
+    if (import_rva == 0 && import_size == 0) return true;
+    if (import_rva == 0 || import_size < 20 ||
+        !range_valid(import_rva, import_size, loaded.image.size())) return false;
+
+    const std::span<const std::byte> image{loaded.image};
+    const std::size_t descriptor_count = import_size / 20U;
+    bool terminated = false;
+    for (std::size_t descriptor_index = 0;
+         descriptor_index < descriptor_count; ++descriptor_index) {
+        const std::size_t descriptor = import_rva + descriptor_index * 20U;
+        std::uint32_t original_first_thunk = 0;
+        std::uint32_t name_rva = 0;
+        std::uint32_t first_thunk = 0;
+        std::uint32_t timestamp = 0;
+        std::uint32_t forwarder_chain = 0;
+        if (!read_u32(image, descriptor, original_first_thunk) ||
+            !read_u32(image, descriptor + 4, timestamp) ||
+            !read_u32(image, descriptor + 8, forwarder_chain) ||
+            !read_u32(image, descriptor + 12, name_rva) ||
+            !read_u32(image, descriptor + 16, first_thunk)) return false;
+
+        if (original_first_thunk == 0 && timestamp == 0 &&
+            forwarder_chain == 0 && name_rva == 0 && first_thunk == 0) {
+            terminated = true;
+            break;
+        }
+        if (name_rva == 0 || first_thunk == 0) return false;
+
+        PeImportModule module{};
+        if (!read_image_string(image, name_rva, module.name) ||
+            module.name.empty()) return false;
+
+        const std::uint32_t lookup_rva =
+            original_first_thunk != 0 ? original_first_thunk : first_thunk;
+        bool thunk_terminated = false;
+        const std::size_t maximum_thunks = image.size() / sizeof(std::uint64_t);
+        for (std::size_t thunk_index = 0; thunk_index < maximum_thunks; ++thunk_index) {
+            const std::uint64_t thunk_offset =
+                static_cast<std::uint64_t>(lookup_rva) +
+                thunk_index * sizeof(std::uint64_t);
+            if (thunk_offset > std::numeric_limits<std::size_t>::max()) return false;
+            std::uint64_t thunk = 0;
+            if (!read_u64(image, static_cast<std::size_t>(thunk_offset), thunk))
+                return false;
+            if (thunk == 0) {
+                thunk_terminated = true;
+                break;
+            }
+
+            PeImportSymbol symbol{};
+            if ((thunk & (1ULL << 63U)) != 0) {
+                symbol.by_ordinal = true;
+                symbol.ordinal = static_cast<std::uint16_t>(thunk & 0xffffU);
+            } else {
+                if (thunk > std::numeric_limits<std::uint32_t>::max())
+                    return false;
+                const auto name_entry = static_cast<std::uint32_t>(thunk);
+                if (!read_u16(image, name_entry, symbol.hint) ||
+                    name_entry > std::numeric_limits<std::uint32_t>::max() - 2U ||
+                    !read_image_string(image, name_entry + 2U, symbol.name) ||
+                    symbol.name.empty()) return false;
+            }
+            module.symbols.push_back(std::move(symbol));
+        }
+        if (!thunk_terminated) return false;
+        loaded.imports.push_back(std::move(module));
+    }
+    return terminated;
 }
 
 bool apply_dir64_relocations(LoadedPeImage& image, std::uint32_t reloc_rva,
@@ -191,6 +281,16 @@ std::optional<LoadedPeImage> PeImageLoader::load(
         loaded.sections.push_back(std::move(section));
     }
 
+    std::uint32_t import_rva = 0;
+    std::uint32_t import_size = 0;
+    if (directory_count > import_directory_index &&
+        optional_size >= 112U + (import_directory_index + 1U) * 8U) {
+        const std::size_t directory_offset =
+            optional_offset + 112U + import_directory_index * 8U;
+        if (!read_u32(file, directory_offset, import_rva) ||
+            !read_u32(file, directory_offset + 4, import_size)) return std::nullopt;
+    }
+
     std::uint32_t reloc_rva = 0;
     std::uint32_t reloc_size = 0;
     if (directory_count > relocation_directory_index &&
@@ -208,6 +308,7 @@ std::optional<LoadedPeImage> PeImageLoader::load(
             return std::nullopt;
     }
 
+    if (!parse_imports(loaded, import_rva, import_size)) return std::nullopt;
     return loaded;
 }
 
