@@ -5075,6 +5075,57 @@ void test_byte_mov_forms() {
             "truncated C6 immediate instruction should report a memory fault");
 }
 
+void test_byte_test_instructions() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33e00, 0x100};
+    const std::array<std::byte, 4> register_program{
+        std::byte{0x84}, std::byte{0xc8}, // test al, cl
+        std::byte{0xf6}, std::byte{0xc0}  // test al, imm8 (immediate follows)
+    };
+    const std::array<std::byte, 3> memory_program{
+        std::byte{0x84}, std::byte{0x0f}, // test byte [rdi], cl
+        std::byte{0xf6}                   // F6 memory form follows at separate address
+    };
+    const std::array<std::byte, 3> immediate_memory_program{
+        std::byte{0xf6}, std::byte{0x07}, std::byte{0x0f} // test byte [rdi], 0fh
+    };
+    require(memory.write(0x33e00, register_program), "byte TEST register program should load");
+    require(memory.write(0x33e20, memory_program), "byte TEST memory program should load");
+    require(memory.write(0x33e40, immediate_memory_program), "byte TEST immediate program should load");
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState state{};
+
+    state.rip = 0x33e00;
+    state.gpr[0] = 0x11223344556677f0ULL;
+    state.gpr[1] = 0x887766554433220fULL;
+    const auto original = state.gpr[0];
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == original && (state.rflags & (1ULL << 6U)) != 0,
+            "TEST r/m8,r8 should set ZF and preserve its operand");
+    state.rip = 0x33e02;
+    require(memory.write_le<std::uint8_t>(0x33e04, 0x0fU),
+            "byte TEST immediate register operand should initialize");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == original && (state.rflags & (1ULL << 6U)) == 0,
+            "TEST r/m8,imm8 should update flags without modifying AL");
+
+    state.rip = 0x33e20;
+    state.gpr[7] = 0x33e80;
+    state.gpr[1] = 0x0f;
+    require(memory.write_le<std::uint8_t>(0x33e80, 0xf0U),
+            "byte TEST memory operand should initialize");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33e80).value_or(0) == 0xf0U &&
+            (state.rflags & (1ULL << 6U)) != 0,
+            "TEST r/m8,r8 memory form should preserve memory and set ZF");
+
+    state.rip = 0x33e40;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33e80).value_or(0) == 0xf0U &&
+            (state.rflags & (1ULL << 6U)) != 0,
+            "TEST r/m8,imm8 memory form should not write its operand");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -5175,6 +5226,7 @@ int main() {
         test_group1_byte_immediates();
         test_byte_register_memory_alu_forms();
         test_byte_mov_forms();
+        test_byte_test_instructions();
 
         test_cpu_state_reset();
         test_interpreter();
