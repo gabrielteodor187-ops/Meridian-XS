@@ -7,7 +7,7 @@ void print_banner() {
     std::cout
         << "Meridian-XS\n"
         << "Xbox Series X|S research emulator project\n"
-        << "Version 0.4.0 (basic arithmetic execution)\n\n";
+        << "Version 0.5.0 (basic control-flow execution)\n\n";
 }
 
 void print_status() {
@@ -18,6 +18,7 @@ void print_status() {
         << "  - NOP, HLT, and MOV register-immediate\n"
         << "  - register-only 64-bit ADD, SUB, XOR, and CMP\n"
         << "  - basic arithmetic status flags\n"
+        << "  - short JMP/JZ/JNZ and near JZ/JNZ branches\n"
         << "  - core tests registered with CTest\n\n"
         << "Still missing:\n"
         << "  - broad x86-64 instruction and memory-addressing support\n"
