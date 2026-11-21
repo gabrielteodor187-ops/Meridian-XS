@@ -23,10 +23,11 @@ void print_status() {
         << "  - near relative CALL and RET\n"
         << "  - 64-bit MOV loads/stores using base + disp8/disp32\n"
         << "  - 64-bit ADD/SUB/XOR/CMP with sign-extended imm32\n"
-        << "  - SIB memory addressing with scaled and extended index registers\n        << "  - RIP-relative 64-bit MOV loads and stores with signed disp32\n"
+        << "  - SIB memory addressing with scaled and extended index registers\n"
+        << "  - RIP-relative 64-bit MOV loads and stores with signed disp32\n"
         << "  - core tests registered with CTest\n\n"
         << "Still missing:\n"
-        << "  - broad x86-64 instruction and memory-addressing support (RIP-relative still missing)\n"
+        << "  - broad x86-64 instruction coverage, including vector/SSE operations\n"
         << "  - virtual memory, interrupts, and scheduling\n"
         << "  - Xbox kernel and system services\n"
         << "  - GPU emulation, storage, and boot support\n";
