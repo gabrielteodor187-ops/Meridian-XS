@@ -979,6 +979,16 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 update_add_flags32(state, lhs, rhs, result);
                 state.gpr[destination] = result;
                 break;
+            case 0x09:
+                result = lhs | rhs;
+                update_logic_flags32(state, result);
+                state.gpr[destination] = result;
+                break;
+            case 0x21:
+                result = lhs & rhs;
+                update_logic_flags32(state, result);
+                state.gpr[destination] = result;
+                break;
             case 0x29:
                 result = lhs - rhs;
                 update_sub_flags32(state, lhs, rhs, result);
@@ -1008,6 +1018,16 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         case 0x01:
             result = lhs + rhs;
             update_add_flags(state, lhs, rhs, result);
+            state.gpr[destination] = result;
+            break;
+        case 0x09:
+            result = lhs | rhs;
+            update_logic_flags(state, result);
+            state.gpr[destination] = result;
+            break;
+        case 0x21:
+            result = lhs & rhs;
+            update_logic_flags(state, result);
             state.gpr[destination] = result;
             break;
         case 0x29:

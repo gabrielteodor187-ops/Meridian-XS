@@ -128,3 +128,8 @@ Extended the 0x81 immediate arithmetic group with 32-bit and 64-bit register-dir
 ### v0.34.0 — Register and memory OR/AND operations
 
 Added the x86-64 OR r/m, r and AND r/m, r instruction forms for 32-bit and 64-bit operands. Both register-direct and supported memory destinations are handled; memory forms reuse the existing base, SIB, displacement, and RIP-relative address calculation. Logical flags are updated and memory writes go through the checked guest-memory backend. Automated tests cover 32-bit register OR, 64-bit register AND, and 32/64-bit memory destinations.
+
+
+### v0.34.1 — OR/AND register-form correction
+
+Completed the register-direct execution branches for the OR and AND opcodes and corrected the memory-OR regression test's expected bitwise result. The v0.34.0 implementation already included the memory-destination paths; this patch makes the documented register and memory coverage consistent.

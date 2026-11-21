@@ -1433,7 +1433,7 @@ void test_register_and_memory_or_and() {
             "logical register operations should clear CF and OF");
     require(interpreter.step(state, memory) == StepResult::Executed,
             "32-bit memory OR should execute");
-    require(memory.read_le<std::uint32_t>(0x1d100).value_or(0) == 0x0ff0f00fU,
+    require(memory.read_le<std::uint32_t>(0x1d100).value_or(0) == 0x0ffff00fU,
             "32-bit memory OR should update the destination");
     require(interpreter.step(state, memory) == StepResult::Executed,
             "64-bit memory AND should execute");
