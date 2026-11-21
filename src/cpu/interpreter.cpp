@@ -397,9 +397,10 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
     const bool is_sub = opcode == 0x5c;
     const bool is_mul = opcode == 0x59;
     const bool is_div = opcode == 0x5e;
-    const bool is_integer_arithmetic =
-        vex.pp == 1 && (opcode == 0xd4 || opcode == 0xfe ||
-                        opcode == 0xfb || opcode == 0xfa);
+    const bool is_integer_arithmetic = vex.pp == 1 &&
+        (opcode == 0xfc || opcode == 0xfd || opcode == 0xfe || opcode == 0xd4 ||
+         opcode == 0xf8 || opcode == 0xf9 || opcode == 0xfa || opcode == 0xfb ||
+         opcode == 0xd5);
     if (vex.pp == 2 && !dqu_move)
         return StepResult::UnsupportedInstruction;
     if (is_move_load || is_move_store) {
@@ -604,8 +605,11 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
             }
         } else if (is_integer_arithmetic) {
             const std::size_t lane_size =
+                (opcode == 0xfc || opcode == 0xf8) ? 1U :
+                (opcode == 0xfd || opcode == 0xf9 || opcode == 0xd5) ? 2U :
                 (opcode == 0xd4 || opcode == 0xfb) ? 8U : 4U;
-            const bool add = opcode == 0xd4 || opcode == 0xfe;
+            const bool add = opcode == 0xfc || opcode == 0xfd ||
+                             opcode == 0xfe || opcode == 0xd4;
             for (std::size_t lane = 0; lane < width; lane += lane_size) {
                 std::uint64_t lhs = 0;
                 std::uint64_t rhs = 0;
@@ -619,7 +623,9 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                 }
                 const std::uint64_t mask = lane_size == 8U
                     ? UINT64_MAX : 0xffffffffULL;
-                const std::uint64_t value = (add ? lhs + rhs : lhs - rhs) & mask;
+                const std::uint64_t value = opcode == 0xd5
+                    ? (lhs * rhs) & mask
+                    : (add ? lhs + rhs : lhs - rhs) & mask;
                 for (std::size_t byte = 0; byte < lane_size; ++byte)
                     result[lane + byte] =
                         static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);

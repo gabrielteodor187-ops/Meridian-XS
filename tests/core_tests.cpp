@@ -3934,6 +3934,76 @@ void test_avx2_packed_compare_and_vpmovmskb() {
             "VPMOVMSKB should collect 32 byte sign bits from a YMM register");
 }
 
+
+void test_avx2_packed_byte_word_arithmetic() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32800, 0x100};
+    const std::array<std::byte, 5> vpaddb{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xfc}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 5> vpsubw{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xf9}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 5> vpmullw{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xd5}, std::byte{0xc2}
+    };
+    require(memory.write(0x32800, vpaddb), "VPADDB instruction should load");
+    require(memory.write(0x32810, vpsubw), "VPSUBW instruction should load");
+    require(memory.write(0x32820, vpmullw), "VPMULLW instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32800;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    state.xmm[1].fill(std::byte{0xfe});
+    state.xmm[2].fill(std::byte{0x05});
+    state.ymm_high[1].fill(std::byte{0xfe});
+    state.ymm_high[2].fill(std::byte{0x05});
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPADDB.256 should execute");
+    for (const auto byte : state.xmm[0])
+        require(byte == std::byte{0x03},
+                "VPADDB should wrap independently in every byte lane");
+    for (const auto byte : state.ymm_high[0])
+        require(byte == std::byte{0x03},
+                "VPADDB should wrap upper YMM byte lanes");
+
+    state.rip = 0x32810;
+    state.xmm[1].fill(std::byte{0x00});
+    state.xmm[2].fill(std::byte{0x00});
+    state.ymm_high[1].fill(std::byte{0x00});
+    state.ymm_high[2].fill(std::byte{0x00});
+    // Set each 16-bit lane to 2 and 5, respectively.
+    for (std::size_t lane = 0; lane < 8; ++lane) {
+        auto& a = lane < 8 ? state.xmm[1] : state.ymm_high[1];
+        auto& b = lane < 8 ? state.xmm[2] : state.ymm_high[2];
+        const std::size_t offset = (lane % 8U) * 2U;
+        a[offset] = std::byte{0x02};
+        b[offset] = std::byte{0x05};
+    }
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPSUBW.256 should execute");
+    require(state.xmm[0][0] == std::byte{0xfd} &&
+            state.xmm[0][1] == std::byte{0xff},
+            "VPSUBW should wrap signed-looking 16-bit lanes modulo 2^16");
+
+    state.rip = 0x32820;
+    for (auto& reg : state.xmm) reg.fill(std::byte{0});
+    for (auto& reg : state.ymm_high) reg.fill(std::byte{0});
+    state.xmm[1][0] = std::byte{0x03};
+    state.xmm[1][1] = std::byte{0x00};
+    state.xmm[2][0] = std::byte{0x04};
+    state.xmm[2][1] = std::byte{0x00};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPMULLW.256 should execute");
+    require(state.xmm[0][0] == std::byte{0x0c} &&
+            state.xmm[0][1] == std::byte{0x00},
+            "VPMULLW should keep the low 16 bits of each word product");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4019,6 +4089,7 @@ int main() {
         test_avx2_vpshufb_128bit_lane_behavior();
         test_avx_vperm2f128_vperm2i128();
         test_avx2_packed_compare_and_vpmovmskb();
+        test_avx2_packed_byte_word_arithmetic();
 
         test_cpu_state_reset();
         test_interpreter();
