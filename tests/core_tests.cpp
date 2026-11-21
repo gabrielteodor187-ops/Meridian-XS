@@ -1479,6 +1479,72 @@ void test_sign_extended_imm8_group1() {
             "sign-extended imm8 program should reach HLT");
 }
 
+
+void test_all_short_condition_codes() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x1f000, 32};
+    const std::array<std::byte, 8> program{
+        std::byte{0x70}, std::byte{0x05},
+        std::byte{0xb8}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0xf4}
+    };
+    require(memory.write(0x1f000, program), "condition-code test program should load");
+    struct ConditionCase { std::uint8_t opcode; std::uint64_t flags; bool taken; };
+    constexpr std::uint64_t cf = 1ULL << 0U;
+    constexpr std::uint64_t pf = 1ULL << 2U;
+    constexpr std::uint64_t zf = 1ULL << 6U;
+    constexpr std::uint64_t sf = 1ULL << 7U;
+    constexpr std::uint64_t of = 1ULL << 11U;
+    const std::array<ConditionCase, 16> cases{{
+        {0x70, of, true}, {0x71, of, false},
+        {0x72, cf, true}, {0x73, cf, false},
+        {0x74, zf, true}, {0x75, zf, false},
+        {0x76, cf, true}, {0x77, cf, false},
+        {0x78, sf, true}, {0x79, sf, false},
+        {0x7a, pf, true}, {0x7b, pf, false},
+        {0x7c, sf, true}, {0x7d, sf | of, true},
+        {0x7e, zf, true}, {0x7f, 0, true}
+    }};
+    const meridian::cpu::Interpreter interpreter{};
+    for (const auto& item : cases) {
+        require(memory.write(0x1f000, std::span<const std::byte>{program}.subspan(1)),
+                "condition-code branch body should remain available");
+        const std::array<std::byte, 1> opcode_byte{static_cast<std::byte>(item.opcode)};
+        require(memory.write(0x1f000, opcode_byte), "condition opcode should write");
+        meridian::cpu::CpuState state{};
+        state.rip = 0x1f000;
+        state.rflags = 0x2 | item.flags;
+        require(interpreter.step(state, memory) == StepResult::Executed,
+                "short conditional branch should execute");
+        const std::uint64_t expected_rip = 0x1f000 + (item.taken ? 7U : 2U);
+        require(state.rip == expected_rip,
+                "short conditional branch should evaluate its condition flags");
+    }
+}
+
+void test_near_unsigned_condition_branch() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x20000, 32};
+    const std::array<std::byte, 12> program{
+        // JB +5; MOV EAX,1; HLT.
+        std::byte{0x0f}, std::byte{0x82},
+        std::byte{0x05}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xb8}, std::byte{0x01}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0xf4}
+    };
+    require(memory.write(0x20000, program), "near conditional branch program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x20000;
+    state.rflags = 0x2 | (1ULL << 0U);
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "near JB should execute");
+    require(state.rip == 0x2000b,
+            "near JB should branch when carry is set");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "near JB target should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1514,6 +1580,8 @@ int main() {
         test_immediate_and_or_registers();
         test_register_and_memory_or_and();
         test_sign_extended_imm8_group1();
+        test_all_short_condition_codes();
+        test_near_unsigned_condition_branch();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

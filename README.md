@@ -12,7 +12,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - x86-64 architectural CPU state container.
 - Initial instruction interpreter: NOP, HLT, and MOV register-immediate.
 - Register-only 64-bit ADD, SUB, XOR, and CMP instructions.
-- Short JMP, JZ, and JNZ branches plus near 32-bit JZ/JNZ branches.
+- Short JMP and all 16 x86 condition-code branches, plus near 32-bit conditional branches.
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
 - Near relative CALL and RET with checked guest-stack access.
@@ -139,3 +139,8 @@ Completed the register-direct execution branches for the OR and AND opcodes and 
 ### v0.35.0 — Sign-extended imm8 arithmetic
 
 Added register-direct Group-1 opcode 0x83 for ADD, OR, AND, SUB, XOR, and CMP. The signed 8-bit immediate is extended to the active operand width, including 64-bit operations, and existing arithmetic/logical flag helpers are reused. Tests cover negative imm8 values, 32-bit zero-extension, 64-bit sign-extension, and REX.B extended-register selection. Memory-destination forms of opcode 0x83 remain unsupported.
+
+
+### v0.36.0 — Complete condition-code branch family
+
+Expanded short conditional branches to all 16 x86 condition codes and added the corresponding near rel32 forms. Conditions are evaluated from CF, PF, ZF, SF, and OF, including unsigned and signed comparisons. Tests exercise the full short-condition family and a near JB branch. This remains a partial CPU implementation; branch-target canonicality and full exception semantics are not modeled.

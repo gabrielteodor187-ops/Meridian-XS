@@ -94,6 +94,34 @@ void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
     state.rflags &= ~arithmetic_flags;
     update_common_flags32(state, result);
 }
+
+bool condition_true(std::uint8_t condition, std::uint64_t flags) noexcept {
+    const bool carry = (flags & flag_cf) != 0;
+    const bool parity = (flags & flag_pf) != 0;
+    const bool zero = (flags & flag_zf) != 0;
+    const bool sign = (flags & flag_sf) != 0;
+    const bool overflow = (flags & flag_of) != 0;
+    switch (condition & 0x0fU) {
+    case 0x0: return overflow;                 // O
+    case 0x1: return !overflow;                // NO
+    case 0x2: return carry;                    // B/ C
+    case 0x3: return !carry;                   // AE/ NC
+    case 0x4: return zero;                     // E/ Z
+    case 0x5: return !zero;                    // NE/ NZ
+    case 0x6: return carry || zero;             // BE
+    case 0x7: return !carry && !zero;           // A
+    case 0x8: return sign;                     // S
+    case 0x9: return !sign;                    // NS
+    case 0xa: return parity;                   // P/ PE
+    case 0xb: return !parity;                  // NP/ PO
+    case 0xc: return sign != overflow;          // L
+    case 0xd: return sign == overflow;          // GE
+    case 0xe: return zero || (sign != overflow);// LE
+    case 0xf: return !zero && (sign == overflow);// G
+    }
+    return false;
+}
+
 } // namespace
 
 template <typename Memory>
@@ -131,14 +159,14 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
-    // Short relative branches: JMP, JZ, and JNZ.
-    if (opcode == 0xeb || opcode == 0x74 || opcode == 0x75) {
+    // Short relative JMP and all 16 x86 condition-code branches.
+    if (opcode == 0xeb || (opcode >= 0x70 && opcode <= 0x7f)) {
         std::uint8_t raw_displacement = 0;
         if (!fetch8(memory, pc, raw_displacement)) return StepResult::MemoryFault;
         const auto displacement = static_cast<std::int8_t>(raw_displacement);
-        const bool zero = (state.rflags & flag_zf) != 0;
-        const bool take = opcode == 0xeb || (opcode == 0x74 && zero) ||
-                          (opcode == 0x75 && !zero);
+        const bool take = opcode == 0xeb ||
+                          condition_true(static_cast<std::uint8_t>(opcode & 0x0fU),
+                                         state.rflags);
         state.rip = take ? pc + static_cast<std::int64_t>(displacement) : pc;
         return StepResult::Executed;
     }
@@ -253,13 +281,14 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             state.rip = pc;
             return StepResult::Executed;
         }
-        if (second != 0x84 && second != 0x85) return StepResult::UnsupportedInstruction;
+        if (second < 0x80 || second > 0x8f)
+            return StepResult::UnsupportedInstruction;
         const auto raw_displacement = memory.template fetch_le<std::uint32_t>(pc);
         if (!raw_displacement) return StepResult::MemoryFault;
         pc += 4;
         const auto displacement = std::bit_cast<std::int32_t>(*raw_displacement);
-        const bool zero = (state.rflags & flag_zf) != 0;
-        const bool take = second == 0x84 ? zero : !zero;
+        const bool take = condition_true(static_cast<std::uint8_t>(second & 0x0fU),
+                                         state.rflags);
         state.rip = take ? pc + static_cast<std::int64_t>(displacement) : pc;
         return StepResult::Executed;
     }
