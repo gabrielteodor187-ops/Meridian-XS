@@ -6,6 +6,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 
 ## Implemented
 
+- Byte MOV operations: register/register and register/memory in both directions, MOV r8,imm8, and MOV r/m8,imm8, including correct legacy high-byte and REX low-byte register selection.
+
 - Byte register/register and register/memory ALU forms for ADD, OR, ADC, SBB, AND, SUB, XOR, and CMP in both operand directions, including legacy high-byte and REX low-byte register selection.
 
 - C++23 / CMake project.
@@ -75,6 +77,11 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 4. Research graphics command translation and console-specific interfaces using public documentation.
 
 All implementation is intended to be original code based on public information. No proprietary SDKs, firmware, keys, or game data are included.
+
+
+### v0.92.0 — Byte MOV register, memory, and immediate operations
+
+Implemented MOV r/m8,r8 and MOV r8,r/m8 for register and supported memory operands, MOV r8,imm8, and MOV r/m8,imm8 (C6 /0). The byte-register paths preserve unaffected bits and distinguish legacy high-byte registers from REX low-byte registers. Added regression tests for both operand directions, immediate writes, memory access, and truncated-instruction faults.
 
 
 ### v0.91.0 — Byte register and memory ALU operations
