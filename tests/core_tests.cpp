@@ -3,6 +3,7 @@
 #include "meridian/core/x64_page_table_walker.hpp"
 #include "meridian/core/pe_image_loader.hpp"
 #include "meridian/core/x64_guest_image_mapper.hpp"
+#include "meridian/core/xvd_container_reader.hpp"
 #include "meridian/cpu/cpu_state.hpp"
 #include "meridian/cpu/interpreter.hpp"
 
@@ -2346,6 +2347,60 @@ void test_pe32_plus_image_loader() {
 
 
 
+
+void test_xvd_xvc_header_metadata_reader() {
+    using meridian::core::XvdContainerReader;
+    std::vector<std::byte> file(XvdContainerReader::header_size);
+    const auto put32 = [&](std::size_t offset, std::uint32_t value) {
+        for (std::size_t i = 0; i < 4; ++i)
+            file[offset + i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    };
+    const auto put64 = [&](std::size_t offset, std::uint64_t value) {
+        for (std::size_t i = 0; i < 8; ++i)
+            file[offset + i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    };
+    const char magic[] = "msft-xvd";
+    for (std::size_t i = 0; i < 8; ++i)
+        file[0x200 + i] = static_cast<std::byte>(magic[i]);
+    put32(0x208, 0); // Encryption and integrity are enabled.
+    put32(0x20c, 3);
+    put64(0x218, 0x100000);
+    put32(0x280, 0); // Fixed volume.
+    put32(0x284, 1); // Title content.
+    put32(0x288, 0x2000);
+    put32(0x28c, 0x1000);
+    put32(0x290, 0x3000);
+    put32(0x294, 0x1000);
+    put32(0x298, 0xaa000);
+
+    const auto info = XvdContainerReader::inspect(file);
+    require(info.has_value(), "valid XVD header should be recognized");
+    require(info->format_version == 3 && info->drive_size == 0x100000 &&
+            info->type == 0 && info->content_type == 1,
+            "XVD reader should expose core volume metadata");
+    require(info->is_xvc && info->is_encrypted &&
+            info->data_integrity_enabled,
+            "title content should be recognized as XVC and report security flags");
+    require(info->embedded_xvd_length == 0x2000 &&
+            info->user_data_length == 0x1000 &&
+            info->xvc_data_length == 0x3000 &&
+            info->dynamic_header_length == 0x1000 &&
+            info->block_size == 0xaa000,
+            "XVD reader should expose declared metadata-region lengths");
+
+    put32(0x208, (1U << 1U) | (1U << 2U));
+    const auto unprotected = XvdContainerReader::inspect(file);
+    require(unprotected.has_value() && !unprotected->is_encrypted &&
+            !unprotected->data_integrity_enabled,
+            "XVD security flags should be decoded without attempting decryption");
+    require(!XvdContainerReader::inspect(
+                std::span<const std::byte>{file}.first(0x2fff)),
+            "truncated XVD headers should be rejected");
+    file[0x200] = std::byte{0};
+    require(!XvdContainerReader::inspect(file),
+            "non-XVD magic should be rejected");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2400,6 +2455,7 @@ int main() {
         test_syscall_sysret_and_swapgs();
         test_cpuid_rdtsc_and_rdtscp();
         test_pe32_plus_image_loader();
+        test_xvd_xvc_header_metadata_reader();
 
         test_cpu_state_reset();
         test_interpreter();
