@@ -37,6 +37,24 @@ bool VirtualAddressSpace::map(std::uint64_t virtual_address,
     return true;
 }
 
+bool VirtualAddressSpace::protect(std::uint64_t virtual_address,
+                                  std::size_t length,
+                                  PagePermissions permissions) noexcept {
+    if (length == 0 || !aligned(virtual_address) || length % page_size != 0 ||
+        length > std::numeric_limits<std::uint64_t>::max() - virtual_address) {
+        return false;
+    }
+
+    const auto page_count = length / static_cast<std::size_t>(page_size);
+    for (std::size_t i = 0; i < page_count; ++i) {
+        if (!pages_.contains(virtual_address + i * page_size)) return false;
+    }
+    for (std::size_t i = 0; i < page_count; ++i) {
+        pages_.at(virtual_address + i * page_size).permissions = permissions;
+    }
+    return true;
+}
+
 bool VirtualAddressSpace::unmap(std::uint64_t virtual_address,
                                 std::size_t length) noexcept {
     if (length == 0 || !aligned(virtual_address) || length % page_size != 0 ||

@@ -790,6 +790,43 @@ void test_virtual_address_space() {
             "failed mapping must not leave partial page entries");
 }
 
+void test_virtual_address_protection_changes() {
+    using meridian::core::PagePermissions;
+    using meridian::core::VirtualAddressSpace;
+    meridian::core::GuestMemory backing{0x30000, 2 * VirtualAddressSpace::page_size};
+    VirtualAddressSpace space{};
+    require(space.map(0x600000, backing, 0x30000,
+                      2 * VirtualAddressSpace::page_size,
+                      PagePermissions{true, true, false}),
+            "two writable data pages should map");
+
+    require(space.protect(0x600000, 2 * VirtualAddressSpace::page_size,
+                          PagePermissions{true, false, true}),
+            "protection should update a complete mapped range");
+    std::array<std::byte, 1> byte{};
+    const std::array<std::byte, 1> value{std::byte{0x77}};
+    require(!space.write(0x600000, value),
+            "write should fail after write permission is removed");
+    require(space.fetch(0x600000, byte),
+            "instruction fetch should succeed after execute permission is granted");
+
+    require(!space.protect(0x600000, 3 * VirtualAddressSpace::page_size,
+                           PagePermissions{true, true, true}),
+            "protection across an unmapped page must fail");
+    require(space.fetch(0x600000, byte),
+            "failed multi-page protection must leave earlier pages unchanged");
+
+    require(space.protect(0x600000, VirtualAddressSpace::page_size,
+                          PagePermissions{false, true, false}),
+            "a single page should be protectable independently");
+    require(!space.read(0x600000, byte),
+            "read should fail after read permission is removed");
+    require(space.write(0x600000, value),
+            "write should succeed after write permission is granted");
+    require(!space.fetch(0x600000, byte),
+            "execute should fail after execute permission is removed");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -807,6 +844,7 @@ int main() {
     try {
         test_guest_memory();
         test_virtual_address_space();
+        test_virtual_address_protection_changes();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

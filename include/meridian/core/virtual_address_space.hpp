@@ -27,6 +27,10 @@ public:
                            std::size_t length,
                            PagePermissions permissions);
 
+    [[nodiscard]] bool protect(std::uint64_t virtual_address,
+                                std::size_t length,
+                                PagePermissions permissions) noexcept;
+
     [[nodiscard]] bool unmap(std::uint64_t virtual_address,
                              std::size_t length) noexcept;
 
