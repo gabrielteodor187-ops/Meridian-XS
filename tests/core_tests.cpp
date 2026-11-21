@@ -105,6 +105,40 @@ void test_arithmetic_instructions() {
     require((state.rflags & overflow_flag) != 0, "signed overflow should set overflow flag");
 }
  
+
+void test_guest_program_end_to_end() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x4000, 64};
+    // A tiny guest program: RAX = 7; RCX = 5; RAX += RCX; halt.
+    const std::array<std::byte, 23> program{
+        std::byte{0x48}, std::byte{0xb8},
+        std::byte{0x07}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0xb9},
+        std::byte{0x05}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x01}, std::byte{0xc8}
+    };
+    require(memory.write(0x4000, program), "guest program should load into memory");
+    require(memory.write_le<std::uint8_t>(0x4017, 0xf4), "HLT should be written after program");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x4000;
+    const meridian::cpu::Interpreter interpreter{};
+
+    std::size_t executed = 0;
+    while (executed < 8) {
+        const auto result = interpreter.step(state, memory);
+        if (result == StepResult::Halted) break;
+        require(result == StepResult::Executed, "guest program should execute without faults");
+        ++executed;
+    }
+
+    require(executed == 3, "guest program should execute three instructions before HLT");
+    require(state.gpr[0] == 12, "guest program should calculate 7 + 5 = 12");
+    require(state.rip == 0x4018, "guest program should stop immediately after HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -124,6 +158,7 @@ int main() {
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
+        test_guest_program_end_to_end();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
