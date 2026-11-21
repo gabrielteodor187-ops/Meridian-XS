@@ -3013,7 +3013,20 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                                            (rex_r ? 8U : 0U);
             const std::size_t destination_reg = static_cast<std::size_t>(modrm & 7U) +
                                                 (rex_b ? 8U : 0U);
-            if (rex_w) {
+            if (operand_size_override && !rex_w) {
+                const std::uint16_t lhs = static_cast<std::uint16_t>(state.gpr[destination_reg]);
+                const std::uint16_t rhs = static_cast<std::uint16_t>(state.gpr[source_reg]);
+                std::uint16_t result = 0;
+                switch (opcode) {
+                case 0x01: result = static_cast<std::uint16_t>(lhs + rhs); update_add_flags16(state, lhs, rhs, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
+                case 0x09: result = static_cast<std::uint16_t>(lhs | rhs); update_logic_flags16(state, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
+                case 0x21: result = static_cast<std::uint16_t>(lhs & rhs); update_logic_flags16(state, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
+                case 0x29: result = static_cast<std::uint16_t>(lhs - rhs); update_sub_flags16(state, lhs, rhs, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
+                case 0x31: result = static_cast<std::uint16_t>(lhs ^ rhs); update_logic_flags16(state, result); state.gpr[destination_reg] = (state.gpr[destination_reg] & ~0xffffULL) | result; break;
+                case 0x39: result = static_cast<std::uint16_t>(lhs - rhs); update_sub_flags16(state, lhs, rhs, result); break;
+                default: return StepResult::UnsupportedInstruction;
+                }
+            } else if (rex_w) {
                 const std::uint64_t lhs = state.gpr[destination_reg];
                 const std::uint64_t rhs = state.gpr[source_reg];
                 std::uint64_t result = 0;
