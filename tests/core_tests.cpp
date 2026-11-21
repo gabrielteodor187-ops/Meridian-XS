@@ -994,6 +994,47 @@ void test_movsxd_registers() {
             "MOVSXD test program should reach HLT");
 }
 
+
+void test_movzx_registers() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x14000, 32};
+    const std::array<std::byte, 17> program{
+        // MOVZX RAX, CL; MOVZX R9, R8W; MOVZX EAX, SPL; MOVZX EDX, AH; HLT.
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0xb6}, std::byte{0xc1},
+        std::byte{0x4d}, std::byte{0x0f}, std::byte{0xb7}, std::byte{0xc8},
+        std::byte{0x40}, std::byte{0x0f}, std::byte{0xb6}, std::byte{0xc4},
+        std::byte{0x0f}, std::byte{0xb6}, std::byte{0xd4},
+        std::byte{0xf4}, std::byte{0x90}
+    };
+    require(memory.write(0x14000, program), "MOVZX program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x14000;
+    state.gpr[1] = 0x123456789abc00abULL;
+    state.gpr[8] = 0xfeedfacecafebeefULL;
+    state.gpr[4] = 0x112233445566007aULL;
+    state.gpr[0] = 0x000000000000ab00ULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVZX byte to 64-bit register should execute");
+    require(state.gpr[0] == 0xab,
+            "MOVZX byte source should zero-extend into a 64-bit destination");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVZX word with extended registers should execute");
+    require(state.gpr[9] == 0xbeef,
+            "REX.R/B should select extended registers for MOVZX word");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVZX SPL with a REX prefix should execute");
+    require(state.gpr[0] == 0x7a,
+            "REX prefix should select SPL rather than the legacy high-byte register");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVZX AH without a REX prefix should execute");
+    require(state.gpr[2] == 0xab,
+            "legacy byte register encoding should select AH without REX");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "MOVZX test program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1016,6 +1057,7 @@ int main() {
         test_interpreter_virtual_address_space();
         test_lea_effective_address();
         test_movsxd_registers();
+        test_movzx_registers();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

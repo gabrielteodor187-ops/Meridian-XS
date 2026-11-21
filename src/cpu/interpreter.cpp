@@ -147,6 +147,29 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        if (second == 0xb6 || second == 0xb7) {
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t source =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            std::uint64_t value = 0;
+            if (second == 0xb7) {
+                value = static_cast<std::uint16_t>(state.gpr[source]);
+            } else if (rex_present) {
+                value = static_cast<std::uint8_t>(state.gpr[source]);
+            } else {
+                const std::uint8_t low = static_cast<std::uint8_t>(modrm & 7U);
+                value = low >= 4
+                    ? static_cast<std::uint8_t>(state.gpr[low - 4U] >> 8U)
+                    : static_cast<std::uint8_t>(state.gpr[source]);
+            }
+            state.gpr[destination] = rex_w ? value : static_cast<std::uint32_t>(value);
+            state.rip = pc;
+            return StepResult::Executed;
+        }
         if (second != 0x84 && second != 0x85) return StepResult::UnsupportedInstruction;
         const auto raw_displacement = memory.template fetch_le<std::uint32_t>(pc);
         if (!raw_displacement) return StepResult::MemoryFault;
@@ -162,7 +185,9 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     bool rex_r = false;
     bool rex_x = false;
     bool rex_b = false;
+    bool rex_present = false;
     if (opcode >= 0x40 && opcode <= 0x4f) {
+        rex_present = true;
         rex_w = (opcode & 0x08U) != 0;
         rex_r = (opcode & 0x04U) != 0;
         rex_x = (opcode & 0x02U) != 0;

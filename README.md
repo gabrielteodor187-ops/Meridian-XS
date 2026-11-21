@@ -67,3 +67,8 @@ Added 32-bit and 64-bit LEA for the supported ModRM/SIB addressing forms, includ
 ### v0.22.0 — MOVSXD register form
 
 Added the REX.W register-to-register form of MOVSXD, including REX.R/REX.B extended registers and correct sign extension from the source's low 32 bits into a 64-bit destination. Memory-source MOVSXD and the broader opcode family remain future work.
+
+
+### v0.23.0 — MOVZX register forms
+
+Added register-only MOVZX from 8-bit and 16-bit sources to 32-bit or 64-bit destinations. The implementation handles legacy AH/CH/DH/BH byte-register encodings when no REX prefix is present, and SPL/BPL/SIL/DIL plus extended byte registers when REX is present. Memory-source MOVZX remains unsupported.
