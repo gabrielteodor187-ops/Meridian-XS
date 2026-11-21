@@ -377,16 +377,24 @@ void test_sib_memory_addressing() {
     state.gpr[8] = 4;
     const meridian::cpu::Interpreter interpreter{};
 
-    for (int i = 0; i < 6; ++i) {
-        require(interpreter.step(state, memory) == StepResult::Executed,
-                "supported SIB load/store should execute");
-    }
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "first SIB store should execute");
     require(memory.read_le<std::uint64_t>(0x8048).value_or(0) == state.gpr[0],
             "SIB scale and base/index registers should calculate the first address");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "first SIB load should execute");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "REX.X SIB store should execute");
     require(memory.read_le<std::uint64_t>(0x8044).value_or(0) == state.gpr[0],
             "REX.X should select R8 as the SIB index");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "REX.X SIB load should execute");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "no-base SIB store should execute");
     require(memory.read_le<std::uint64_t>(0x8004).value_or(0) == state.gpr[0],
             "SIB no-base form should use its signed disp32 and scaled index");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "no-base SIB load should execute");
     require(state.gpr[3] == state.gpr[0], "SIB loads should copy guest memory into RBX");
     require(interpreter.step(state, memory) == StepResult::Halted,
             "SIB program should reach HLT");
