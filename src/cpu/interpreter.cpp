@@ -3153,6 +3153,77 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    // Byte register/memory ALU forms (00/02 through 38/3A).
+    if (opcode == 0x00 || opcode == 0x02 || opcode == 0x08 || opcode == 0x0a ||
+        opcode == 0x10 || opcode == 0x12 || opcode == 0x18 || opcode == 0x1a ||
+        opcode == 0x20 || opcode == 0x22 || opcode == 0x28 || opcode == 0x2a ||
+        opcode == 0x30 || opcode == 0x32 || opcode == 0x38 || opcode == 0x3a) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        const std::size_t reg_index = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                      (rex_r ? 8U : 0U);
+        const std::size_t rm_index = static_cast<std::size_t>(modrm & 7U) +
+                                     (rex_b ? 8U : 0U);
+        const bool reg_destination = (opcode & 0x02U) != 0;
+        const std::uint8_t operation = static_cast<std::uint8_t>(opcode & 0xf8U);
+        auto read_byte_register = [&](std::size_t index) -> std::uint8_t {
+            if (!rex_present && index >= 4U && index <= 7U)
+                return static_cast<std::uint8_t>(state.gpr[index - 4U] >> 8U);
+            return static_cast<std::uint8_t>(state.gpr[index]);
+        };
+        auto write_byte_register = [&](std::size_t index, std::uint8_t value) {
+            if (!rex_present && index >= 4U && index <= 7U) {
+                const std::size_t target = index - 4U;
+                state.gpr[target] = (state.gpr[target] & ~0xff00ULL) |
+                                    (static_cast<std::uint64_t>(value) << 8U);
+            } else {
+                state.gpr[index] = (state.gpr[index] & ~0xffULL) | value;
+            }
+        };
+
+        std::uint64_t address = 0;
+        if (mod != 3 &&
+            !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x, 0U, address))
+            return StepResult::MemoryFault;
+
+        const std::uint8_t reg_value = read_byte_register(reg_index);
+        std::uint8_t rm_value = 0;
+        if (mod == 3) {
+            rm_value = read_byte_register(rm_index);
+        } else {
+            const auto loaded = memory.template read_le<std::uint8_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            rm_value = *loaded;
+        }
+
+        const std::uint8_t lhs = reg_destination ? reg_value : rm_value;
+        const std::uint8_t rhs = reg_destination ? rm_value : reg_value;
+        std::uint8_t result = 0;
+        switch (operation) {
+        case 0x00: result = static_cast<std::uint8_t>(lhs + rhs); update_add_flags8(state, lhs, rhs, result); break;
+        case 0x08: result = static_cast<std::uint8_t>(lhs | rhs); update_logic_flags8(state, result); break;
+        case 0x10: { const bool carry_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint8_t>(lhs + rhs + (carry_in ? 1U : 0U)); update_adc_flags8(state, lhs, rhs, carry_in, result); break; }
+        case 0x18: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint8_t>(lhs - rhs - (borrow_in ? 1U : 0U)); update_sbb_flags8(state, lhs, rhs, borrow_in, result); break; }
+        case 0x20: result = static_cast<std::uint8_t>(lhs & rhs); update_logic_flags8(state, result); break;
+        case 0x28: result = static_cast<std::uint8_t>(lhs - rhs); update_sub_flags8(state, lhs, rhs, result); break;
+        case 0x30: result = static_cast<std::uint8_t>(lhs ^ rhs); update_logic_flags8(state, result); break;
+        case 0x38: result = static_cast<std::uint8_t>(lhs - rhs); update_sub_flags8(state, lhs, rhs, result); break;
+        default: return StepResult::UnsupportedInstruction;
+        }
+
+        if (operation != 0x38U) {
+            const bool destination_is_register = reg_destination || mod == 3;
+            if (destination_is_register) {
+                write_byte_register(reg_destination ? reg_index : rm_index, result);
+            } else if (!memory.template write_le<std::uint8_t>(address, result)) {
+                return StepResult::MemoryFault;
+            }
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // ADD/SUB/XOR/CMP between a register and a memory destination.
     // Supports base, signed displacement, SIB-scaled index, no-base SIB,
     // and RIP-relative memory operands.
