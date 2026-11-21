@@ -288,3 +288,8 @@ Expanded the header-only synthetic XVC fixture to include the metadata bytes dec
 ### v0.54.0 — Bounded guest execution engine
 
 Added an execution loop over all three guest memory backends (bounded RAM, virtual address space, and CR3-backed paged memory). It stops on HLT, reports the first execution fault, or enforces a caller-supplied instruction budget. Tests cover a small program reaching HLT, an infinite guest loop stopped by the budget, and a zero budget. This provides a controlled execution harness; it does not add Xbox OS services or make commercial games compatible.
+
+
+### v0.54.1 — PE image execution-engine integration test
+
+The end-to-end synthetic PE test now runs the mapped entry point through the bounded execution engine instead of manually stepping the interpreter. It verifies that image parsing, page-table mapping, instruction execution, and HLT termination work together under an instruction budget.

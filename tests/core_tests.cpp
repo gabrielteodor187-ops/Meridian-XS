@@ -2321,13 +2321,13 @@ void test_pe32_plus_image_loader() {
     cpu.control_registers[0] = 1ULL << 16U;
     cpu.control_registers[3] = mapped->cr3;
     cpu.efer = 1ULL << 11U;
-    const meridian::cpu::Interpreter interpreter{};
-    require(interpreter.step(cpu, paged) == meridian::cpu::StepResult::Executed,
-            "mapped PE entry point should execute through the CPU page tables");
+    const meridian::cpu::ExecutionEngine engine{};
+    const auto execution = engine.run(cpu, paged, 16);
+    require(execution.reason == meridian::cpu::RunStopReason::Halted &&
+            execution.steps == 2,
+            "mapped PE image should run to HLT through the bounded page-table execution engine");
     require(cpu.gpr[0] == 42,
             "mapped PE code should update the guest EAX register");
-    require(interpreter.step(cpu, paged) == meridian::cpu::StepResult::Halted,
-            "mapped PE code should reach HLT");
     require(paged.write_le<std::uint64_t>(mapped->stack_pointer - 8, 0xfeedfaceULL),
             "mapped initial stack should accept guest writes");
     require(paged.read_le<std::uint64_t>(mapped->stack_pointer - 8).value_or(0) ==
