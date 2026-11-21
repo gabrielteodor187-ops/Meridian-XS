@@ -39,7 +39,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
 - FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state).
-- Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers.
+- Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers; MOVUPS/MOVUPD/MOVAPS/MOVAPD packed moves; MOVSS/MOVSD scalar moves with appropriate upper-lane behavior.
 - Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
@@ -356,3 +356,8 @@ Moved the strict unsupported-prefix guard after the explicitly supported MOVD/MO
 ### v0.60.2 — MOVQ register test encoding
 
 Corrected the MOVQ XMM1-to-RCX test's ModRM byte so it selects XMM1 as the source register. The implementation was unchanged.
+
+
+### v0.61.0 — Packed and scalar SSE move families
+
+Added MOVUPS/MOVUPD and aligned MOVAPS/MOVAPD 128-bit moves, plus MOVSS/MOVSD scalar loads and stores. Register-source scalar moves preserve upper destination bits; scalar memory loads zero upper XMM bits; scalar stores write only 32 or 64 bits. Aligned packed memory forms enforce 16-byte alignment. Tests cover packed copies, unaligned loads, scalar upper-lane semantics, scalar stores, and alignment faults. This remains a partial SSE implementation.

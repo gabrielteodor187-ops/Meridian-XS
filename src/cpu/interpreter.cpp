@@ -309,6 +309,70 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+
+        // 128-bit packed and scalar SSE register/memory moves.
+        if (second == 0x10 || second == 0x11 ||
+            second == 0x28 || second == 0x29) {
+            const bool load = second == 0x10 || second == 0x28;
+            const bool aligned = second == 0x28 || second == 0x29;
+            const bool no_prefix = !operand_size_override && !prefix_f3 && !prefix_f2;
+            const bool packed_double = operand_size_override && !prefix_f3 && !prefix_f2;
+            const bool scalar_single = prefix_f3 && !operand_size_override && !prefix_f2;
+            const bool scalar_double = prefix_f2 && !operand_size_override && !prefix_f3;
+            const bool scalar = scalar_single || scalar_double;
+            const bool valid = aligned ? (no_prefix || packed_double)
+                                       : (no_prefix || packed_double ||
+                                          scalar_single || scalar_double);
+            if (!valid) return StepResult::UnsupportedInstruction;
+            if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+                (state.control_registers[4] & (1ULL << 9U)) == 0)
+                return StepResult::UnsupportedInstruction;
+
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::size_t xmm_reg =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t xmm_rm =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            const bool register_operand = (modrm >> 6U) == 3U;
+            const std::size_t width = scalar_single ? 4U :
+                                      scalar_double ? 8U : 16U;
+            std::uint64_t address = 0;
+            std::array<std::byte, 16> source{};
+            if (register_operand) {
+                source = state.xmm[xmm_rm];
+            } else {
+                if (!decode_effective_address(state, memory, pc, modrm,
+                                              rex_b, rex_x, 0, address))
+                    return StepResult::MemoryFault;
+                if (aligned && (address & 0xfU) != 0)
+                    return StepResult::GeneralProtectionFault;
+                if (load && !memory.read(address,
+                        std::span<std::byte>{source}.first(width)))
+                    return StepResult::MemoryFault;
+            }
+
+            if (load) {
+                if (scalar) {
+                    if (!register_operand) state.xmm[xmm_reg].fill(std::byte{0});
+                    std::copy_n(source.begin(), width, state.xmm[xmm_reg].begin());
+                } else {
+                    state.xmm[xmm_reg] = source;
+                }
+            } else if (register_operand) {
+                if (scalar)
+                    std::copy_n(state.xmm[xmm_reg].begin(), width,
+                                state.xmm[xmm_rm].begin());
+                else
+                    state.xmm[xmm_rm] = state.xmm[xmm_reg];
+            } else if (!memory.write(address,
+                       std::span<const std::byte>{state.xmm[xmm_reg]}.first(width))) {
+                return StepResult::MemoryFault;
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // Initial 128-bit SSE/SSE2 data movement and logical operations.
         const bool packed_add_sub =
             second == 0xfc || second == 0xfd || second == 0xfe || second == 0xd4 ||

@@ -2932,6 +2932,85 @@ void test_movd_movq_xmm_transfers() {
             "MOVD memory load should zero-extend into XMM");
 }
 
+
+void test_sse_packed_and_scalar_moves() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31100, 0x100};
+    const std::array<std::byte, 24> program{
+        std::byte{0x0f}, std::byte{0x28}, std::byte{0xc1}, // MOVAPS XMM0,XMM1
+        std::byte{0x0f}, std::byte{0x10}, std::byte{0x08}, // MOVUPS XMM1,[RAX]
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0x10}, std::byte{0x10}, // MOVSS XMM2,[RAX]
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0x10}, std::byte{0xd9}, // MOVSS XMM3,XMM1
+        std::byte{0xf2}, std::byte{0x0f}, std::byte{0x10}, std::byte{0x20}, // MOVSD XMM4,[RAX]
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0x11}, std::byte{0x50},
+        std::byte{0x10} // MOVSS [RAX+16],XMM2
+    };
+    require(memory.write(0x31100, program), "SSE move program should load");
+    std::array<std::byte, 16> input{};
+    for (std::size_t i = 0; i < input.size(); ++i)
+        input[i] = static_cast<std::byte>(i + 1U);
+    require(memory.write(0x31181, input), "unaligned SSE source should load");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31100;
+    state.gpr[0] = 0x31181;
+    state.control_registers[4] = 1ULL << 9U;
+    state.xmm[1].fill(std::byte{0xaa});
+    state.xmm[2].fill(std::byte{0xbb});
+    state.xmm[3].fill(std::byte{0xcc});
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.xmm[0] == state.xmm[1],
+            "MOVAPS register form should copy a full XMM register");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.xmm[1] == input,
+            "MOVUPS should load an unaligned 128-bit memory operand");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSS memory load should execute");
+    for (std::size_t i = 0; i < 4; ++i)
+        require(state.xmm[2][i] == input[i],
+                "MOVSS should load its low 32-bit scalar");
+    for (std::size_t i = 4; i < 16; ++i)
+        require(state.xmm[2][i] == std::byte{0},
+                "MOVSS memory load should zero the upper XMM bits");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSS register form should execute");
+    for (std::size_t i = 0; i < 4; ++i)
+        require(state.xmm[3][i] == input[i],
+                "MOVSS register form should copy the low scalar");
+    for (std::size_t i = 4; i < 16; ++i)
+        require(state.xmm[3][i] == std::byte{0xcc},
+                "MOVSS register form should preserve upper destination bits");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSD memory load should execute");
+    for (std::size_t i = 0; i < 8; ++i)
+        require(state.xmm[4][i] == input[i],
+                "MOVSD should load its low 64-bit scalar");
+    for (std::size_t i = 8; i < 16; ++i)
+        require(state.xmm[4][i] == std::byte{0},
+                "MOVSD memory load should zero the upper 64 bits");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSS memory store should execute");
+    std::array<std::byte, 4> stored{};
+    require(memory.read(0x31191, stored) &&
+            stored == std::array<std::byte, 4>{
+                input[0], input[1], input[2], input[3]},
+            "MOVSS should write only the low 32 bits to memory");
+
+    const std::array<std::byte, 3> aligned_load{
+        std::byte{0x0f}, std::byte{0x28}, std::byte{0x08}
+    };
+    require(memory.write(0x31130, aligned_load),
+            "MOVAPS alignment test should load");
+    meridian::cpu::CpuState misaligned{};
+    misaligned.rip = 0x31130;
+    misaligned.gpr[0] = 0x31181;
+    misaligned.control_registers[4] = 1ULL << 9U;
+    require(interpreter.step(misaligned, memory) == StepResult::GeneralProtectionFault,
+            "MOVAPS should reject unaligned memory operands");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2996,6 +3075,7 @@ int main() {
         test_unsupported_legacy_prefix_combinations();
         test_fxsave_fxrstor_state_round_trip();
         test_movd_movq_xmm_transfers();
+        test_sse_packed_and_scalar_moves();
 
         test_cpu_state_reset();
         test_interpreter();
