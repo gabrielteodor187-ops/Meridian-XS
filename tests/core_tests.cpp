@@ -1,5 +1,6 @@
 #include "meridian/core/guest_memory.hpp"
 #include "meridian/cpu/cpu_state.hpp"
+#include "meridian/cpu/interpreter.hpp"
 
 #include <array>
 #include <cstddef>
@@ -26,6 +27,37 @@ void test_guest_memory() {
             "out-of-range read must fail");
 }
 
+void test_interpreter() {
+    meridian::core::GuestMemory memory{0x2000, 32};
+    // MOV RAX, 0x1122334455667788; NOP; HLT
+    const std::array<std::byte, 12> program{
+        std::byte{0x48}, std::byte{0xb8},
+        std::byte{0x88}, std::byte{0x77}, std::byte{0x66}, std::byte{0x55},
+        std::byte{0x44}, std::byte{0x33}, std::byte{0x22}, std::byte{0x11},
+        std::byte{0x90}, std::byte{0xf4}
+    };
+    require(memory.write(0x2000, program), "program should fit in guest memory");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x2000;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == meridian::cpu::StepResult::Executed,
+            "MOV immediate should execute");
+    require(state.gpr[0] == 0x1122334455667788ULL, "MOV should load the 64-bit immediate");
+    require(state.rip == 0x200a, "MOV should advance RIP by ten bytes");
+    require(interpreter.step(state, memory) == meridian::cpu::StepResult::Executed,
+            "NOP should execute");
+    require(interpreter.step(state, memory) == meridian::cpu::StepResult::Halted,
+            "HLT should return the halted result");
+
+    state.rip = 0x2010;
+    require(interpreter.step(state, memory) == meridian::cpu::StepResult::MemoryFault,
+            "instruction fetch beyond mapped memory should fault");
+    state.rip = 0x2000;
+    require(memory.write_le<std::uint8_t>(0x2000, 0xCC), "test opcode should be writable");
+    require(interpreter.step(state, memory) == meridian::cpu::StepResult::UnsupportedInstruction,
+            "unsupported opcodes should be reported without being executed");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -43,6 +75,7 @@ int main() {
     try {
         test_guest_memory();
         test_cpu_state_reset();
+        test_interpreter();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
