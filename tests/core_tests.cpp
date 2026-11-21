@@ -4490,9 +4490,21 @@ void test_16bit_register_arithmetic() {
     const std::array<std::byte, 3> xor_ax_cx{
         std::byte{0x66}, std::byte{0x31}, std::byte{0xc8}
     };
+    const std::array<std::byte, 3> or_ax_cx{
+        std::byte{0x66}, std::byte{0x09}, std::byte{0xc8}
+    };
+    const std::array<std::byte, 3> and_ax_cx{
+        std::byte{0x66}, std::byte{0x21}, std::byte{0xc8}
+    };
+    const std::array<std::byte, 3> sub_ax_cx{
+        std::byte{0x66}, std::byte{0x29}, std::byte{0xc8}
+    };
     require(memory.write(0x33600, add_ax_cx), "16-bit ADD instruction should load");
     require(memory.write(0x33610, cmp_ax_cx), "16-bit CMP instruction should load");
     require(memory.write(0x33620, xor_ax_cx), "16-bit XOR instruction should load");
+    require(memory.write(0x33630, or_ax_cx), "16-bit OR instruction should load");
+    require(memory.write(0x33640, and_ax_cx), "16-bit AND instruction should load");
+    require(memory.write(0x33650, sub_ax_cx), "16-bit SUB instruction should load");
     const meridian::cpu::Interpreter interpreter{};
 
     meridian::cpu::CpuState state{};
@@ -4522,6 +4534,27 @@ void test_16bit_register_arithmetic() {
     require(interpreter.step(state, memory) == StepResult::Executed &&
             state.gpr[0] == 0xaabbccddeeff000fULL,
             "16-bit XOR should update only the low word");
+
+    state.rip = 0x33630;
+    state.gpr[0] = 0x123456789abc00f0ULL;
+    state.gpr[1] = 0x000f;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x123456789abc00ffULL,
+            "16-bit OR should update AX and preserve the upper 48 bits");
+
+    state.rip = 0x33640;
+    state.gpr[0] = 0x123456789abc00ffULL;
+    state.gpr[1] = 0x000f;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x123456789abc000fULL,
+            "16-bit AND should update AX and preserve the upper 48 bits");
+
+    state.rip = 0x33650;
+    state.gpr[0] = 0x123456789abc000fULL;
+    state.gpr[1] = 0x0010;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x123456789abcffffULL,
+            "16-bit SUB should wrap AX and preserve the upper 48 bits");
 }
 
 void test_16bit_group1_immediates() {
