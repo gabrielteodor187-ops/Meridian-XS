@@ -4004,6 +4004,68 @@ void test_avx2_packed_byte_word_arithmetic() {
             "VPMULLW should keep the low 16 bits of each word product");
 }
 
+
+void test_avx2_saturating_and_minmax_operations() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32900, 0x100};
+    const std::array<std::byte, 5> vpaddsb{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xec}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 5> vpaddusb{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xdc}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 5> vpsubsw{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xe9}, std::byte{0xc2}
+    };
+    require(memory.write(0x32900, vpaddsb), "VPADDSB instruction should load");
+    require(memory.write(0x32910, vpaddusb), "VPADDUSB instruction should load");
+    require(memory.write(0x32920, vpsubsw), "VPSUBSW instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32900;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    state.xmm[1].fill(std::byte{0x7f});
+    state.xmm[2].fill(std::byte{0x01});
+    state.ymm_high[1].fill(std::byte{0x7f});
+    state.ymm_high[2].fill(std::byte{0x01});
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPADDSB should execute");
+    require(state.xmm[0][0] == std::byte{0x7f} &&
+            state.ymm_high[0][0] == std::byte{0x7f},
+            "VPADDSB should saturate positive signed-byte overflow");
+
+    state.rip = 0x32910;
+    state.xmm[1].fill(std::byte{0xff});
+    state.xmm[2].fill(std::byte{0x02});
+    state.ymm_high[1].fill(std::byte{0xff});
+    state.ymm_high[2].fill(std::byte{0x02});
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPADDUSB should execute");
+    require(state.xmm[0][0] == std::byte{0xff} &&
+            state.ymm_high[0][0] == std::byte{0xff},
+            "VPADDUSB should saturate unsigned-byte overflow at 255");
+
+    state.rip = 0x32920;
+    state.xmm[1].fill(std::byte{0x00});
+    state.xmm[2].fill(std::byte{0x00});
+    state.ymm_high[1].fill(std::byte{0x00});
+    state.ymm_high[2].fill(std::byte{0x00});
+    for (std::size_t i = 0; i < 16; i += 2) {
+        state.xmm[1][i] = state.ymm_high[1][i] = std::byte{0x00};
+        state.xmm[1][i + 1] = state.ymm_high[1][i + 1] = std::byte{0x80};
+        state.xmm[2][i] = state.ymm_high[2][i] = std::byte{0x01};
+    }
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPSUBSW should execute");
+    require(state.xmm[0][0] == std::byte{0x00} &&
+            state.xmm[0][1] == std::byte{0x80},
+            "VPSUBSW should saturate negative signed-word overflow");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4090,6 +4152,7 @@ int main() {
         test_avx_vperm2f128_vperm2i128();
         test_avx2_packed_compare_and_vpmovmskb();
         test_avx2_packed_byte_word_arithmetic();
+        test_avx2_saturating_and_minmax_operations();
 
         test_cpu_state_reset();
         test_interpreter();

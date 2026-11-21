@@ -400,7 +400,11 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
     const bool is_integer_arithmetic = vex.pp == 1 &&
         (opcode == 0xfc || opcode == 0xfd || opcode == 0xfe || opcode == 0xd4 ||
          opcode == 0xf8 || opcode == 0xf9 || opcode == 0xfa || opcode == 0xfb ||
-         opcode == 0xd5);
+         opcode == 0xd5 || opcode == 0xec || opcode == 0xdc ||
+         opcode == 0xed || opcode == 0xdd || opcode == 0xe8 ||
+         opcode == 0xd8 || opcode == 0xe9 || opcode == 0xd9 ||
+         opcode == 0xda || opcode == 0xde || opcode == 0xea ||
+         opcode == 0xee || opcode == 0xe0 || opcode == 0xe3);
     if (vex.pp == 2 && !dqu_move)
         return StepResult::UnsupportedInstruction;
     if (is_move_load || is_move_store) {
@@ -605,11 +609,23 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
             }
         } else if (is_integer_arithmetic) {
             const std::size_t lane_size =
-                (opcode == 0xfc || opcode == 0xf8) ? 1U :
-                (opcode == 0xfd || opcode == 0xf9 || opcode == 0xd5) ? 2U :
+                (opcode == 0xfc || opcode == 0xf8 || opcode == 0xec ||
+                 opcode == 0xdc || opcode == 0xe8 || opcode == 0xd8 ||
+                 opcode == 0xda || opcode == 0xde || opcode == 0xe0) ? 1U :
+                (opcode == 0xfd || opcode == 0xf9 || opcode == 0xd5 ||
+                 opcode == 0xed || opcode == 0xdd || opcode == 0xe9 ||
+                 opcode == 0xd9 || opcode == 0xea || opcode == 0xee ||
+                 opcode == 0xe3) ? 2U :
                 (opcode == 0xd4 || opcode == 0xfb) ? 8U : 4U;
             const bool add = opcode == 0xfc || opcode == 0xfd ||
                              opcode == 0xfe || opcode == 0xd4;
+            const bool signed_saturating =
+                opcode == 0xec || opcode == 0xed || opcode == 0xe8 || opcode == 0xe9;
+            const bool unsigned_saturating =
+                opcode == 0xdc || opcode == 0xdd || opcode == 0xd8 || opcode == 0xd9;
+            const bool is_minmax =
+                opcode == 0xda || opcode == 0xde || opcode == 0xea || opcode == 0xee;
+            const bool is_average = opcode == 0xe0 || opcode == 0xe3;
             for (std::size_t lane = 0; lane < width; lane += lane_size) {
                 std::uint64_t lhs = 0;
                 std::uint64_t rhs = 0;
@@ -622,10 +638,47 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                         << (byte * 8U);
                 }
                 const std::uint64_t mask = lane_size == 8U
-                    ? UINT64_MAX : 0xffffffffULL;
-                const std::uint64_t value = opcode == 0xd5
-                    ? (lhs * rhs) & mask
-                    : (add ? lhs + rhs : lhs - rhs) & mask;
+                    ? UINT64_MAX : ((1ULL << (lane_size * 8U)) - 1ULL);
+                std::uint64_t value = 0;
+                if (opcode == 0xd5) {
+                    value = (lhs * rhs) & mask;
+                } else if (is_average) {
+                    value = (lhs + rhs + 1ULL) >> 1U;
+                } else if (is_minmax) {
+                    const bool minimum = opcode == 0xda || opcode == 0xea;
+                    const bool signed_lanes = opcode == 0xea || opcode == 0xee;
+                    if (signed_lanes) {
+                        const std::int64_t signed_lhs = lane_size == 1U
+                            ? std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(lhs))
+                            : std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(lhs));
+                        const std::int64_t signed_rhs = lane_size == 1U
+                            ? std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(rhs))
+                            : std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(rhs));
+                        value = static_cast<std::uint64_t>(
+                            minimum ? std::min(signed_lhs, signed_rhs)
+                                    : std::max(signed_lhs, signed_rhs)) & mask;
+                    } else {
+                        value = minimum ? std::min(lhs, rhs) : std::max(lhs, rhs);
+                    }
+                } else if (signed_saturating) {
+                    const std::int64_t signed_lhs = lane_size == 1U
+                        ? std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(lhs))
+                        : std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(lhs));
+                    const std::int64_t signed_rhs = lane_size == 1U
+                        ? std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(rhs))
+                        : std::bit_cast<std::int16_t>(static_cast<std::uint16_t>(rhs));
+                    const std::int64_t minimum = lane_size == 1U ? -128 : -32768;
+                    const std::int64_t maximum = lane_size == 1U ? 127 : 32767;
+                    value = static_cast<std::uint64_t>(std::clamp(
+                        add ? signed_lhs + signed_rhs : signed_lhs - signed_rhs,
+                        minimum, maximum)) & mask;
+                } else if (unsigned_saturating) {
+                    const bool unsigned_add = opcode == 0xdc || opcode == 0xdd;
+                    value = unsigned_add ? std::min(mask, lhs + rhs)
+                                         : (lhs > rhs ? lhs - rhs : 0);
+                } else {
+                    value = (add ? lhs + rhs : lhs - rhs) & mask;
+                }
                 for (std::size_t byte = 0; byte < lane_size; ++byte)
                     result[lane + byte] =
                         static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);

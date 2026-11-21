@@ -408,7 +408,7 @@ Added XGETBV and XSETBV for XCR0 index 0, including CR4.OSXSAVE checks, XSETBV p
 
 ### v0.68.0 — XSAVE/XRSTOR and YMM upper-half state
 
-Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. Initial AVX VEX.0F support: 128-/256-bit VADDPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. An initial AVX2 integer subset: VPADDB/VPADDW/VPADDD/VPADDQ, VPSUBB/VPSUBW/VPSUBD/VPSUBQ, VPMULLW, VPAND/VPOR/VPXOR, VPCMPEQB/W/D, VPCMPGTB/W/D, VPMOVMSKB, VPSHUFD, VPSHUFB, VPERM2I128, and 256-bit YMM integer lanes; VSHUFPS and VPERM2F128 are supported for AVX.
+Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. Initial AVX VEX.0F support: 128-/256-bit VADDPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. An initial AVX2 integer subset: VPADDB/VPADDW/VPADDD/VPADDQ, VPSUBB/VPSUBW/VPSUBD/VPSUBQ, VPMULLW, signed/unsigned saturating byte/word ADD/SUB, unsigned averages, and byte/word min/max, VPAND/VPOR/VPXOR, VPCMPEQB/W/D, VPCMPGTB/W/D, VPMOVMSKB, VPSHUFD, VPSHUFB, VPERM2I128, and 256-bit YMM integer lanes; VSHUFPS and VPERM2F128 are supported for AVX.
 
 
 ### v0.68.1 — CPUID xstate feature tests
@@ -459,3 +459,8 @@ Added VPCMPEQB/W/D and VPCMPGTB/W/D for 128-/256-bit vectors, plus VPMOVMSKB for
 ### v0.76.0 — AVX2 byte/word arithmetic
 
 Extended packed integer arithmetic to byte and word lanes with VPADDB/VPADDW and VPSUBB/VPSUBW, and added VPMULLW low-word multiplication. Arithmetic wraps at the lane width. Tests cover byte overflow wraparound, word subtraction wraparound, and low-word multiplication. This remains a limited AVX2 integer subset.
+
+
+### v0.77.0 — AVX2 saturating arithmetic and packed min/max
+
+Added signed/unsigned saturating byte/word addition and subtraction, unsigned byte/word rounded averages, and unsigned-byte/signed-word min/max operations. Tests cover signed-byte saturation, unsigned-byte saturation, and signed-word subtraction saturation. The AVX2 implementation remains incomplete.
