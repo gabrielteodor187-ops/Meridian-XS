@@ -509,3 +509,8 @@ Replaced the unavailable generic immediate-fetch helper with explicit execute-pe
 ### v0.82.0 — SHL/SHR/SAR group-2 shifts
 
 Added 16-/32-/64-bit SHL, SHR, and SAR with immediate, implicit-one, and CL-supplied counts. Register and memory destinations are supported; count masking, CF, OF for one-bit shifts, and SF/ZF/PF updates are modeled. Other group-2 rotate operations remain unsupported. Tests cover 64-bit shifts, arithmetic sign propagation, and one-bit flag behavior.
+
+
+### v0.82.1 — Memory shift displacement/immediate ordering
+
+Corrected group-2 immediate shifts with memory operands to decode addressing displacement bytes before fetching the trailing imm8. Added a qword [base+disp8] regression test. Register shift behavior is unchanged.

@@ -927,12 +927,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if (operation != 4U && operation != 5U && operation != 7U)
             return StepResult::UnsupportedInstruction;
         std::uint8_t raw_count = 1;
-        if (opcode == 0xc1) {
-            if (!fetch8(memory, pc, raw_count)) return StepResult::MemoryFault;
-        } else if (opcode == 0xd3) {
+        if (opcode == 0xd3)
             raw_count = static_cast<std::uint8_t>(state.gpr[1]);
-        }
-        const unsigned count = raw_count & (width == 8U ? 0x3fU : 0x1fU);
         const std::uint64_t mask = width == 8U ? UINT64_MAX :
             width == 4U ? 0xffffffffULL : 0xffffULL;
         std::uint64_t value = 0;
@@ -940,12 +936,17 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         const bool register_operand = (modrm >> 6U) == 3U;
         const std::size_t target_register =
             static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+        if (!register_operand &&
+            !decode_effective_address(state, memory, pc, modrm,
+                                      rex_b, rex_x, opcode == 0xc1 ? 1U : 0U,
+                                      address))
+            return StepResult::MemoryFault;
+        if (opcode == 0xc1 && !fetch8(memory, pc, raw_count))
+            return StepResult::MemoryFault;
+        const unsigned count = raw_count & (width == 8U ? 0x3fU : 0x1fU);
         if (register_operand) {
             value = state.gpr[target_register] & mask;
         } else {
-            if (!decode_effective_address(state, memory, pc, modrm,
-                                          rex_b, rex_x, 0, address))
-                return StepResult::MemoryFault;
             if (width == 2U) {
                 const auto loaded = memory.template read_le<std::uint16_t>(address);
                 if (!loaded) return StepResult::MemoryFault;

@@ -4355,6 +4355,21 @@ void test_shl_shr_sar_group2() {
     require(interpreter.step(sar, memory) == StepResult::Executed &&
             sar.gpr[0] == 0xf800000000000000ULL,
             "SAR RAX,CL should replicate the sign bit");
+
+    const std::array<std::byte, 5> shl_memory{
+        std::byte{0x48}, std::byte{0xc1}, std::byte{0x60},
+        std::byte{0x08}, std::byte{0x04}
+    };
+    require(memory.write(0x33430, shl_memory),
+            "SHL memory immediate instruction should load");
+    require(memory.write_le<std::uint64_t>(0x33488, 1),
+            "SHL memory operand should load");
+    meridian::cpu::CpuState memory_state{};
+    memory_state.rip = 0x33430;
+    memory_state.gpr[0] = 0x33480;
+    require(interpreter.step(memory_state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint64_t>(0x33488).value_or(0) == 0x10,
+            "SHL qword [RAX+disp8],imm8 should decode displacement before immediate");
 }
 
 void test_cpu_state_reset() {
