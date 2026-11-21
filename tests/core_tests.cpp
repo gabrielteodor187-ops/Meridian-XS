@@ -999,11 +999,11 @@ void test_movzx_registers() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x14000, 32};
     const std::array<std::byte, 17> program{
-        // MOVZX RAX, CL; MOVZX R9, R8W; MOVZX EAX, SPL; MOVZX EDX, AH; HLT.
+        // MOVZX EDX, AH; MOVZX RAX, CL; MOVZX R9, R8W; MOVZX EAX, SPL; HLT.
+        std::byte{0x0f}, std::byte{0xb6}, std::byte{0xd4},
         std::byte{0x48}, std::byte{0x0f}, std::byte{0xb6}, std::byte{0xc1},
         std::byte{0x4d}, std::byte{0x0f}, std::byte{0xb7}, std::byte{0xc8},
         std::byte{0x40}, std::byte{0x0f}, std::byte{0xb6}, std::byte{0xc4},
-        std::byte{0x0f}, std::byte{0xb6}, std::byte{0xd4},
         std::byte{0xf4}, std::byte{0x90}
     };
     require(memory.write(0x14000, program), "MOVZX program should load");
@@ -1016,6 +1016,10 @@ void test_movzx_registers() {
     const meridian::cpu::Interpreter interpreter{};
 
     require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVZX AH without a REX prefix should execute");
+    require(state.gpr[2] == 0xab,
+            "legacy byte register encoding should select AH without REX");
+    require(interpreter.step(state, memory) == StepResult::Executed,
             "MOVZX byte to 64-bit register should execute");
     require(state.gpr[0] == 0xab,
             "MOVZX byte source should zero-extend into a 64-bit destination");
@@ -1027,10 +1031,6 @@ void test_movzx_registers() {
             "MOVZX SPL with a REX prefix should execute");
     require(state.gpr[0] == 0x7a,
             "REX prefix should select SPL rather than the legacy high-byte register");
-    require(interpreter.step(state, memory) == StepResult::Executed,
-            "MOVZX AH without a REX prefix should execute");
-    require(state.gpr[2] == 0xab,
-            "legacy byte register encoding should select AH without REX");
     require(interpreter.step(state, memory) == StepResult::Halted,
             "MOVZX test program should reach HLT");
 }
