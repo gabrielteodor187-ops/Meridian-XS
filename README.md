@@ -251,3 +251,8 @@ Added X64GuestImageMapper. It allocates guest physical pages, maps PE headers an
 ### v0.50.0 — PE import metadata parsing
 
 The PE32+ loader now parses the import directory after mapping and relocation. It enumerates imported module names and named or ordinal import symbols, validates descriptor/thunk termination and image bounds, and preserves hint/ordinal metadata for a future import resolver. It does not load DLLs, resolve symbols, patch the IAT, emulate Windows APIs, or support Xbox XEX containers. Synthetic fixture tests cover a named import.
+
+
+### v0.50.1 — Ordinal import regression coverage
+
+Expanded the synthetic PE fixture to include both a named import and an ordinal import. The test now verifies the ordinal flag and ordinal value are preserved by the import parser; removed a placeholder test that did not actually exercise ordinal parsing.

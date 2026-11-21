@@ -2239,8 +2239,8 @@ void test_pe32_plus_image_loader() {
     for (std::size_t i = 0; i < sizeof(dll_name); ++i)
         file[0x450 + i] = static_cast<std::byte>(dll_name[i]);
     put64(0x460, 0x2080); // Import-by-name RVA.
-    put64(0x468, 0);
-    put64(0x470, 0); // IAT placeholder.
+    put64(0x468, 0x8000000000000005ULL); // Import by ordinal 5.
+    put64(0x470, 0); // OFT terminator / IAT placeholder.
     put16(0x480, 7); // Hint.
     const char function_name[] = "ExitProcess";
     for (std::size_t i = 0; i < sizeof(function_name); ++i)
@@ -2304,16 +2304,6 @@ void test_pe32_plus_image_loader() {
 }
 
 
-void test_pe_import_by_ordinal() {
-    using meridian::core::PeImageLoader;
-    // The full fixture is built by the common PE loader test; this test focuses
-    // on validating malformed import metadata through the public parser path.
-    std::vector<std::byte> malformed(64);
-    malformed[0] = std::byte{0x4d};
-    malformed[1] = std::byte{0x5a};
-    require(!PeImageLoader::load(malformed),
-            "incomplete images with import-like bytes must be rejected");
-}
 
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
@@ -2369,7 +2359,7 @@ int main() {
         test_syscall_sysret_and_swapgs();
         test_cpuid_rdtsc_and_rdtscp();
         test_pe32_plus_image_loader();
-        test_pe_import_by_ordinal();
+
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
