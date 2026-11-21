@@ -4458,7 +4458,7 @@ void test_16bit_register_arithmetic() {
 
     state.rip = 0x33610;
     state.gpr[0] = 0x8877665544330005ULL;
-    state.gpr[1] = 3;
+    state.gpr[1] = 5;
     require(interpreter.step(state, memory) == StepResult::Executed,
             "16-bit CMP should execute");
     require(state.gpr[0] == 0x8877665544330005ULL,
