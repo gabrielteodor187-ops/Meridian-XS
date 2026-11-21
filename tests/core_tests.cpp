@@ -5011,6 +5011,72 @@ void test_byte_register_memory_alu_forms() {
             "REX byte ALU encoding should select SPL instead of AH");
 }
 
+void test_byte_mov_forms() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33c00, 0x200};
+    const std::array<std::byte, 12> register_program{
+        std::byte{0xb0}, std::byte{0x44},       // mov al, 44h
+        std::byte{0xb4}, std::byte{0x55},       // mov ah, 55h
+        std::byte{0x88}, std::byte{0xc1},       // mov cl, al
+        std::byte{0x8a}, std::byte{0xc8},       // mov cl, al
+        std::byte{0x40}, std::byte{0xb4}, std::byte{0x66} // mov spl, 66h
+    };
+    const std::array<std::byte, 8> memory_program{
+        std::byte{0x88}, std::byte{0x07},       // mov [rdi], al
+        std::byte{0x8a}, std::byte{0x0f},       // mov cl, [rdi]
+        std::byte{0xc6}, std::byte{0x07}, std::byte{0x7a}, // mov byte [rdi], 7ah
+        std::byte{0xc6} // truncated instruction should fault
+    };
+    const std::array<std::byte, 3> immediate_memory_program{
+        std::byte{0xc6}, std::byte{0x47}, std::byte{0x01}
+    };
+    require(memory.write(0x33c00, register_program), "byte MOV register program should load");
+    require(memory.write(0x33c20, memory_program), "byte MOV memory program should load");
+    require(memory.write(0x33c40, immediate_memory_program), "byte MOV immediate memory program should load");
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState state{};
+
+    state.rip = 0x33c00;
+    state.gpr[0] = 0x1122334455667788ULL;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x1122334455667744ULL,
+            "MOV r8,imm8 should preserve all unaffected bits");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x1122334455665544ULL,
+            "legacy MOV immediate should select AH without REX");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[1] & 0xffU) == 0x44U,
+            "MOV r/m8,r8 register form should copy the source byte");
+    state.gpr[1] = 0;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[1] & 0xffU) == 0x44U,
+            "MOV r8,r/m8 register form should copy the source byte");
+    state.rip = 0x33c09;
+    state.gpr[4] = 0x100ULL;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[4] & 0xffU) == 0x66U,
+            "REX MOV immediate should select SPL instead of AH");
+
+    state.rip = 0x33c20;
+    state.gpr[7] = 0x33c80;
+    state.gpr[0] = 0xab;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33c80).value_or(0) == 0xabU,
+            "MOV r/m8,r8 should write a byte to memory");
+    state.gpr[1] = 0;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[1] & 0xffU) == 0xabU,
+            "MOV r8,r/m8 should load a byte from memory");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33c80).value_or(0) == 0x7aU,
+            "MOV r/m8,imm8 should write its immediate to memory");
+
+    state.rip = 0x33c40;
+    state.gpr[7] = 0x33c80;
+    require(interpreter.step(state, memory) == StepResult::MemoryFault,
+            "truncated C6 immediate instruction should report a memory fault");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -5110,6 +5176,7 @@ int main() {
         test_group1_adc_sbb_immediates();
         test_group1_byte_immediates();
         test_byte_register_memory_alu_forms();
+        test_byte_mov_forms();
 
         test_cpu_state_reset();
         test_interpreter();
