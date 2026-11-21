@@ -1,4 +1,5 @@
 #include "meridian/core/guest_memory.hpp"
+#include "meridian/core/virtual_address_space.hpp"
 #include "meridian/cpu/cpu_state.hpp"
 #include "meridian/cpu/interpreter.hpp"
 
@@ -707,6 +708,88 @@ void test_memory_arithmetic_extended_addressing() {
             "extended memory arithmetic program should reach HLT");
 }
 
+void test_virtual_address_space() {
+    using meridian::core::PagePermissions;
+    using meridian::core::VirtualAddressSpace;
+    meridian::core::GuestMemory backing{0x20000, 3 * VirtualAddressSpace::page_size};
+    VirtualAddressSpace address_space{};
+
+    require(address_space.map(0x400000, backing, 0x20000,
+                              2 * VirtualAddressSpace::page_size,
+                              PagePermissions{true, true, true}),
+            "two aligned pages should map");
+    require(address_space.is_mapped(0x400ff0, 32),
+            "range crossing two mapped pages should be mapped");
+    require(!address_space.map(0x400000, backing, 0x22000,
+                               VirtualAddressSpace::page_size,
+                               PagePermissions{true, true, true}),
+            "overlapping mappings must be rejected");
+    require(!address_space.map(0x400001, backing, 0x22000,
+                               VirtualAddressSpace::page_size,
+                               PagePermissions{true, true, true}),
+            "unaligned virtual addresses must be rejected");
+
+    const std::array<std::byte, 32> payload{
+        std::byte{0x10}, std::byte{0x11}, std::byte{0x12}, std::byte{0x13},
+        std::byte{0x14}, std::byte{0x15}, std::byte{0x16}, std::byte{0x17},
+        std::byte{0x18}, std::byte{0x19}, std::byte{0x1a}, std::byte{0x1b},
+        std::byte{0x1c}, std::byte{0x1d}, std::byte{0x1e}, std::byte{0x1f},
+        std::byte{0x20}, std::byte{0x21}, std::byte{0x22}, std::byte{0x23},
+        std::byte{0x24}, std::byte{0x25}, std::byte{0x26}, std::byte{0x27},
+        std::byte{0x28}, std::byte{0x29}, std::byte{0x2a}, std::byte{0x2b},
+        std::byte{0x2c}, std::byte{0x2d}, std::byte{0x2e}, std::byte{0x2f}
+    };
+    require(address_space.write(0x400ff0, payload),
+            "write spanning adjacent mapped pages should succeed");
+    std::array<std::byte, 32> copied{};
+    require(address_space.read(0x400ff0, copied) && copied == payload,
+            "cross-page read should return the written bytes");
+    std::array<std::byte, 32> fetched{};
+    require(address_space.fetch(0x400ff0, fetched) && fetched == payload,
+            "executable page fetch should succeed");
+
+    require(address_space.unmap(0x401000, VirtualAddressSpace::page_size),
+            "mapped page should unmap");
+    require(!address_space.is_mapped(0x400ff0, 32),
+            "range with an unmapped second page should no longer be mapped");
+    require(!address_space.read(0x400ff0, copied),
+            "cross-page read must fail when its second page is unmapped");
+    require(!address_space.unmap(0x401000, VirtualAddressSpace::page_size),
+            "unmapping a missing page should fail without changing mappings");
+
+    require(address_space.map(0x401000, backing, 0x21000,
+                              VirtualAddressSpace::page_size,
+                              PagePermissions{true, false, false}),
+            "read-only non-executable page should map");
+    require(address_space.read(0x401000, std::span<std::byte>{copied.data(), 1}),
+            "read permission should allow data reads");
+    const std::array<std::byte, 1> replacement{std::byte{0xff}};
+    const auto original = backing.read_le<std::uint8_t>(0x21000).value_or(0);
+    require(!address_space.write(0x401000, replacement),
+            "read-only page must reject writes");
+    require(!address_space.fetch(0x401000, std::span<std::byte>{fetched.data(), 1}),
+            "non-executable page must reject instruction fetches");
+    require(backing.read_le<std::uint8_t>(0x21000).value_or(0) == original,
+            "rejected write must not modify backing memory");
+
+    require(address_space.map(0x402000, backing, 0x22000,
+                              VirtualAddressSpace::page_size,
+                              PagePermissions{false, true, false}),
+            "write-only page should map");
+    const std::array<std::byte, 1> marker{std::byte{0x5a}};
+    require(address_space.write(0x402000, marker),
+            "write-only page should allow writes");
+    require(!address_space.read(0x402000, std::span<std::byte>{copied.data(), 1}),
+            "write-only page must reject reads");
+
+    require(!address_space.map(0x500000, backing, 0x20000,
+                               4 * VirtualAddressSpace::page_size,
+                               PagePermissions{true, true, true}),
+            "mapping beyond backing memory must fail atomically");
+    require(!address_space.is_mapped(0x500000),
+            "failed mapping must not leave partial page entries");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -723,6 +806,7 @@ void test_cpu_state_reset() {
 int main() {
     try {
         test_guest_memory();
+        test_virtual_address_space();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
