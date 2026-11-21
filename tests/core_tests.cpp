@@ -285,14 +285,58 @@ void test_memory_operand_faults() {
     require(state.rip == 0x9000 && state.gpr[3] == 0xdeadbeef,
             "failed guest load must not change RIP or its destination register");
 
-    const std::array<std::byte, 7> rip_relative_load{
+}
+
+void test_rip_relative_memory_addressing() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x9000, 0x200};
+    const std::array<std::byte, 22> program{
+        // MOV RBX, [RIP+0x39] -> 0x9040.
         std::byte{0x48}, std::byte{0x8b}, std::byte{0x1d},
-        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}
+        std::byte{0x39}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        // REX.B must be ignored for ModRM r/m=101 in 64-bit mode.
+        std::byte{0x49}, std::byte{0x8b}, std::byte{0x0d},
+        std::byte{0x32}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        // MOV [RIP+0x3b] -> 0x9050, RAX.
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x05},
+        std::byte{0x3b}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xf4}
     };
-    require(memory.write(0x9020, rip_relative_load), "RIP-relative test instruction should load");
-    state.rip = 0x9020;
-    require(interpreter.step(state, memory) == StepResult::UnsupportedInstruction,
-            "RIP-relative addressing should remain unsupported rather than misdecoded");
+    require(memory.write(0x9000, program), "RIP-relative program should load");
+    require(memory.write_le<std::uint64_t>(0x9040, 0x1122334455667788ULL),
+            "RIP-relative source data should be writable");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x9000;
+    state.gpr[0] = 0xaabbccddeeff0011ULL;
+    state.gpr[13] = 0x9070;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RIP-relative load should execute");
+    require(state.gpr[3] == 0x1122334455667788ULL,
+            "RIP-relative load should use the end of the instruction as its base");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RIP-relative load with REX.B should execute");
+    require(state.gpr[1] == 0x1122334455667788ULL,
+            "REX.B must not turn RIP-relative addressing into an R13 base");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RIP-relative store should execute");
+    require(memory.read_le<std::uint64_t>(0x9050).value_or(0) == state.gpr[0],
+            "RIP-relative store should write to the calculated target");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "RIP-relative program should reach HLT");
+
+    // A negative displacement must address data before the instruction.
+    const std::array<std::byte, 7> negative_load{
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x15},
+        std::byte{0xd9}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}
+    };
+    require(memory.write(0x9060, negative_load), "negative RIP-relative load should load");
+    state.rip = 0x9060;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "negative RIP-relative displacement should execute");
+    require(state.gpr[2] == 0x1122334455667788ULL,
+            "negative RIP-relative displacement should address earlier data");
 }
 
 void test_immediate_arithmetic() {
@@ -425,6 +469,7 @@ int main() {
         test_stack_memory_fault_is_atomic();
         test_memory_operand_mov();
         test_memory_operand_faults();
+        test_rip_relative_memory_addressing();
         test_immediate_arithmetic();
         test_sib_memory_addressing();
         std::cout << "All Meridian-XS core tests passed.\n";

@@ -20,6 +20,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - REX.R/REX.B extension for memory MOV register and base selection.
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
+- RIP-relative 64-bit MOV loads and stores using signed disp32 offsets, including correct REX.B handling.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -35,11 +36,11 @@ ctest --test-dir build --output-on-failure
 
 ## Not implemented
 
-This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, RIP-relative memory addressing, virtual memory, privilege model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
+This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, virtual memory, privilege model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
 
 ## Development direction
 
-1. Expand x86-64 decoding, including memory operands and immediate arithmetic.
+1. Expand x86-64 decoding, including broader memory operands, arithmetic, and control flow.
 2. Build a mapped address-space model with page permissions.
 3. Add interrupts, scheduling, and system-call/platform abstractions.
 4. Research graphics command translation and console-specific interfaces using public documentation.

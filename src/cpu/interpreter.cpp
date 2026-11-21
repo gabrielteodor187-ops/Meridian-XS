@@ -223,8 +223,8 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
-    // 64-bit MOV between a register and [base + displacement].
-    // SIB and RIP-relative addressing are deliberately left unsupported.
+    // 64-bit MOV between a register and a supported memory operand.
+    // Supports base/displacement, SIB, and RIP-relative forms.
     if (rex_w && (opcode == 0x8b || opcode == 0x89)) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
@@ -247,6 +247,7 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         std::uint64_t index_value = 0;
         unsigned scale_shift = 0;
         bool has_base = true;
+        bool rip_relative = false;
 
         if (rm_low == 4) {
             std::uint8_t sib = 0;
@@ -267,9 +268,12 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
                 base_value = state.gpr[base_reg];
             }
         } else {
-            if (mod == 0 && rm_low == 5)
-                return StepResult::UnsupportedInstruction; // RIP-relative form
-            base_value = state.gpr[rm];
+            if (mod == 0 && rm_low == 5) {
+                // In 64-bit mode this encoding is RIP-relative; REX.B is ignored.
+                rip_relative = true;
+            } else {
+                base_value = state.gpr[rm];
+            }
         }
 
         std::int64_t displacement = 0;
@@ -277,14 +281,16 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
             std::uint8_t raw = 0;
             if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int8_t>(raw);
-        } else if (mod == 2 || (mod == 0 && !has_base)) {
+        } else if (mod == 2 || (mod == 0 && (!has_base || rip_relative))) {
             const auto raw = memory.read_le<std::uint32_t>(pc);
             if (!raw) return StepResult::MemoryFault;
             displacement = std::bit_cast<std::int32_t>(*raw);
             pc += 4;
         }
 
-        const std::uint64_t address = (has_base ? base_value : 0) +
+        // RIP-relative offsets are based on the address immediately after
+        // the complete instruction, including its displacement.
+        const std::uint64_t address = (rip_relative ? pc : (has_base ? base_value : 0)) +
                                       (index_value << scale_shift) +
                                       static_cast<std::uint64_t>(displacement);
         if (opcode == 0x8b) {
