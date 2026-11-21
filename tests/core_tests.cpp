@@ -669,6 +669,44 @@ void test_memory_arithmetic() {
             "memory arithmetic program should reach HLT");
 }
 
+void test_memory_arithmetic_extended_addressing() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x11000, 0x200};
+    const std::array<std::byte, 18> program{
+        // ADD qword [RDI + RCX*4 + 8], R8.
+        std::byte{0x4c}, std::byte{0x01}, std::byte{0x44}, std::byte{0x8f}, std::byte{0x08},
+        // XOR dword [RIP + disp32], EDX; displacement points to 0x11080.
+        std::byte{0x31}, std::byte{0x15}, std::byte{0x6e}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00},
+        std::byte{0xf4}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90},
+        std::byte{0x90}, std::byte{0x90}, std::byte{0x90}
+    };
+    require(memory.write(0x11000, program), "extended memory arithmetic program should load");
+    require(memory.write_le<std::uint64_t>(0x11050, 10ULL),
+            "SIB arithmetic target should initialize");
+    require(memory.write_le<std::uint32_t>(0x11080, 0x00ff00ffU),
+            "RIP-relative arithmetic target should initialize");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x11000;
+    state.gpr[7] = 0x11040;
+    state.gpr[1] = 2;
+    state.gpr[8] = 7;
+    state.gpr[2] = 0x0f0f0f0fU;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SIB memory ADD should execute");
+    require(memory.read_le<std::uint64_t>(0x11050).value_or(0) == 17ULL,
+            "SIB scale, base, displacement, and REX.R should select the right operands");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RIP-relative memory XOR should execute");
+    require(memory.read_le<std::uint32_t>(0x11080).value_or(0) ==
+                (0x00ff00ffU ^ 0x0f0f0f0fU),
+            "RIP-relative arithmetic should use the address after the instruction");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "extended memory arithmetic program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -702,6 +740,7 @@ int main() {
         test_32bit_memory_mov();
         test_test_instruction();
         test_memory_arithmetic();
+        test_memory_arithmetic_extended_addressing();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
