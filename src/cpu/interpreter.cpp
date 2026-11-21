@@ -187,6 +187,61 @@ void update_logic_flags16(CpuState& state, std::uint16_t result) noexcept {
     update_common_flags16(state, result);
 }
 
+void update_adc_flags16(CpuState& state, std::uint16_t lhs, std::uint16_t rhs,
+                        bool carry_in, std::uint16_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (static_cast<std::uint32_t>(lhs) + rhs + (carry_in ? 1U : 0U) > 0xffffU)
+        state.rflags |= flag_cf;
+    if (((~(lhs ^ rhs) & (lhs ^ result)) & 0x8000U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags16(state, result);
+}
+
+void update_sbb_flags16(CpuState& state, std::uint16_t lhs, std::uint16_t rhs,
+                        bool borrow_in, std::uint16_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (lhs < rhs || (borrow_in && lhs == rhs)) state.rflags |= flag_cf;
+    if ((((lhs ^ rhs) & (lhs ^ result)) & 0x8000U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags16(state, result);
+}
+
+void update_adc_flags32(CpuState& state, std::uint32_t lhs, std::uint32_t rhs,
+                        bool carry_in, std::uint32_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (result < lhs || (carry_in && result == lhs)) state.rflags |= flag_cf;
+    if (((~(lhs ^ rhs) & (lhs ^ result)) & 0x80000000U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags32(state, result);
+}
+
+void update_sbb_flags32(CpuState& state, std::uint32_t lhs, std::uint32_t rhs,
+                        bool borrow_in, std::uint32_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (lhs < rhs || (borrow_in && lhs == rhs)) state.rflags |= flag_cf;
+    if ((((lhs ^ rhs) & (lhs ^ result)) & 0x80000000U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags32(state, result);
+}
+
+void update_adc_flags(CpuState& state, std::uint64_t lhs, std::uint64_t rhs,
+                      bool carry_in, std::uint64_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (result < lhs || (carry_in && result == lhs)) state.rflags |= flag_cf;
+    if (((~(lhs ^ rhs) & (lhs ^ result)) >> 63U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags(state, result);
+}
+
+void update_sbb_flags(CpuState& state, std::uint64_t lhs, std::uint64_t rhs,
+                      bool borrow_in, std::uint64_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (lhs < rhs || (borrow_in && lhs == rhs)) state.rflags |= flag_cf;
+    if ((((lhs ^ rhs) & (lhs ^ result)) >> 63U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags(state, result);
+}
+
 
 struct SignedMultiplyResult {
     std::uint64_t value{0};
