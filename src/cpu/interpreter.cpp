@@ -386,6 +386,27 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
+    // Register-to-register MOV with 32-bit operand size. Writes to a
+    // 32-bit destination zero-extend into the corresponding 64-bit GPR.
+    // Memory forms remain unsupported in this instruction subset.
+    if (!rex_w && (opcode == 0x89 || opcode == 0x8b)) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
+
+        const std::size_t source = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                   (rex_r ? 8U : 0U);
+        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
+                                       (rex_b ? 8U : 0U);
+        if (opcode == 0x89) {
+            state.gpr[destination] = static_cast<std::uint32_t>(state.gpr[source]);
+        } else {
+            state.gpr[source] = static_cast<std::uint32_t>(state.gpr[destination]);
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // Register-only 32-bit and 64-bit ADD, SUB, XOR, and CMP.
     // In 64-bit mode, default operand size is 32 bits unless REX.W is set.
     if (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {

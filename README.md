@@ -22,6 +22,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
 - RIP-relative 64-bit MOV loads and stores using signed disp32 offsets, including correct REX.B handling.
 - 32-bit register and immediate ADD, SUB, XOR, and CMP with 32-bit flag behaviour and architectural zero-extension into 64-bit GPRs.
+- 32-bit register-to-register MOV (both operand directions), including REX.R/REX.B extended registers and zero-extension into 64-bit GPRs.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 

@@ -506,6 +506,51 @@ void test_sib_memory_addressing() {
             "SIB program should reach HLT");
 }
 
+void test_32bit_register_mov() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0xc000, 64};
+    const std::array<std::byte, 13> program{
+        // MOV ECX, EAX; MOV EDX, ECX.
+        std::byte{0x89}, std::byte{0xc1},
+        std::byte{0x8b}, std::byte{0xd1},
+        // MOV R9D, R8D; MOV R10D, R9D (REX.R and REX.B).
+        std::byte{0x45}, std::byte{0x89}, std::byte{0xc1},
+        std::byte{0x45}, std::byte{0x8b}, std::byte{0xd1},
+        std::byte{0xf4}, std::byte{0x90}, std::byte{0x90}
+    };
+    require(memory.write(0xc000, program), "32-bit MOV program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xc000;
+    state.gpr[0] = 0xffff000012345678ULL;
+    state.gpr[1] = 0xaaaaaaaa00000000ULL;
+    state.gpr[2] = 0xbbbbbbbb00000000ULL;
+    state.gpr[8] = 0xcccccccc89abcdefULL;
+    state.gpr[9] = 0xdddddddd00000000ULL;
+    state.gpr[10] = 0xeeeeeeee00000000ULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    for (int i = 0; i < 4; ++i) {
+        require(interpreter.step(state, memory) == StepResult::Executed,
+                "32-bit register MOV should execute");
+    }
+    require(state.gpr[1] == 0x12345678ULL && state.gpr[2] == 0x12345678ULL,
+            "32-bit MOV should copy values and zero-extend destinations");
+    require(state.gpr[9] == 0x89abcdefULL && state.gpr[10] == 0x89abcdefULL,
+            "REX.R and REX.B should select extended 32-bit registers");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "32-bit register MOV program should reach HLT");
+
+    const std::array<std::byte, 2> unsupported_memory_form{
+        std::byte{0x8b}, std::byte{0x00}
+    };
+    require(memory.write(0xc020, unsupported_memory_form),
+            "unsupported memory MOV test should load");
+    state.rip = 0xc020;
+    require(interpreter.step(state, memory) == StepResult::UnsupportedInstruction,
+            "32-bit MOV memory forms should remain explicitly unsupported");
+    require(state.rip == 0xc020, "unsupported MOV must not advance RIP");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -535,6 +580,7 @@ int main() {
         test_immediate_arithmetic();
         test_32bit_arithmetic();
         test_sib_memory_addressing();
+        test_32bit_register_mov();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
