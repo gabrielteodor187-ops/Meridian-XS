@@ -5001,7 +5001,7 @@ void test_byte_register_memory_alu_forms() {
     state.rip = 0x33b46;
     state.gpr[0] = 0x1201;
     require(interpreter.step(state, memory) == StepResult::Executed &&
-            state.gpr[0] == 0x1203,
+            state.gpr[0] == 0x1213,
             "legacy byte ALU encoding should select AH without REX");
     state.rip = 0x33b60;
     state.gpr[0] = 1;
