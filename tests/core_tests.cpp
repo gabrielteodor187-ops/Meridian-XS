@@ -85,6 +85,7 @@ void test_arithmetic_instructions() {
     require(state.gpr[0] == 5, "SUB should store the difference");
     require(interpreter.step(state, memory) == StepResult::Executed, "XOR should execute");
     require(state.gpr[0] == 6, "XOR should store the bitwise result");
+    state.gpr[1] = 6;
     require(interpreter.step(state, memory) == StepResult::Executed, "CMP should execute");
     require(state.gpr[0] == 6, "CMP must not modify its destination");
     require((state.rflags & zero_flag) != 0, "CMP of equal values should set zero flag");
