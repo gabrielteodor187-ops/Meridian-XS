@@ -554,7 +554,7 @@ void test_32bit_register_mov() {
 void test_32bit_memory_mov() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0xd000, 0x100};
-    const std::array<std::byte, 12> program{
+    const std::array<std::byte, 14> program{
         // MOV [RDI+4], EAX; MOV EBX, [RDI+4].
         std::byte{0x89}, std::byte{0x47}, std::byte{0x04},
         std::byte{0x8b}, std::byte{0x5f}, std::byte{0x04},
