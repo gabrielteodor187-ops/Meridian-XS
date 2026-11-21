@@ -4066,6 +4066,77 @@ void test_avx2_saturating_and_minmax_operations() {
             "VPSUBSW should saturate negative signed-word overflow");
 }
 
+
+void test_indirect_call_jump_and_push_group() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33000, 0x1000};
+    const std::array<std::byte, 2> call_rax{
+        std::byte{0xff}, std::byte{0xd0}
+    };
+    const std::array<std::byte, 2> call_memory{
+        std::byte{0xff}, std::byte{0x10}
+    };
+    const std::array<std::byte, 2> jump_rax{
+        std::byte{0xff}, std::byte{0xe0}
+    };
+    const std::array<std::byte, 2> push_rax{
+        std::byte{0xff}, std::byte{0xf0}
+    };
+    const std::array<std::byte, 1> halt{std::byte{0xf4}};
+    require(memory.write(0x33000, call_rax), "indirect CALL RAX should load");
+    require(memory.write(0x33010, halt), "indirect CALL target should load");
+    require(memory.write(0x33020, call_memory), "indirect CALL memory should load");
+    require(memory.write(0x33030, halt), "indirect memory CALL target should load");
+    require(memory.write(0x33040, jump_rax), "indirect JMP RAX should load");
+    require(memory.write(0x33050, halt), "indirect JMP target should load");
+    require(memory.write(0x33060, push_rax), "PUSH RAX group form should load");
+    require(memory.write_le<std::uint64_t>(0x33080, 0x33030),
+            "indirect CALL pointer should load");
+
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState call_state{};
+    call_state.rip = 0x33000;
+    call_state.gpr[0] = 0x33010;
+    call_state.gpr[4] = 0x33fff0;
+    require(interpreter.step(call_state, memory) == StepResult::Executed &&
+            call_state.rip == 0x33010 &&
+            call_state.gpr[4] == 0x33ffe8,
+            "CALL RAX should branch and push the following instruction address");
+    require(memory.read_le<std::uint64_t>(0x33ffe8).value_or(0) == 0x33002,
+            "CALL RAX should store the correct return address");
+    require(interpreter.step(call_state, memory) == StepResult::Halted,
+            "indirect CALL target should execute");
+
+    meridian::cpu::CpuState memory_call{};
+    memory_call.rip = 0x33020;
+    memory_call.gpr[0] = 0x33080;
+    memory_call.gpr[4] = 0x33fff0;
+    require(interpreter.step(memory_call, memory) == StepResult::Executed &&
+            memory_call.rip == 0x33030,
+            "CALL [RAX] should load its target from guest memory");
+    require(memory.read_le<std::uint64_t>(0x33ffe8).value_or(0) == 0x33022,
+            "CALL [RAX] should push the decoded next RIP");
+
+    meridian::cpu::CpuState jump_state{};
+    jump_state.rip = 0x33040;
+    jump_state.gpr[0] = 0x33050;
+    require(interpreter.step(jump_state, memory) == StepResult::Executed &&
+            jump_state.rip == 0x33050,
+            "JMP RAX should transfer control without pushing");
+
+    meridian::cpu::CpuState push_state{};
+    push_state.rip = 0x33060;
+    push_state.gpr[0] = 0x123456789abcdef0ULL;
+    push_state.gpr[4] = 0x33fff0;
+    require(interpreter.step(push_state, memory) == StepResult::Executed &&
+            push_state.rip == 0x33062 &&
+            push_state.gpr[4] == 0x33ffe8,
+            "PUSH r/m64 should push the selected operand");
+    require(memory.read_le<std::uint64_t>(0x33ffe8).value_or(0) ==
+                0x123456789abcdef0ULL,
+            "PUSH RAX should preserve the full 64-bit value");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4153,6 +4224,7 @@ int main() {
         test_avx2_packed_compare_and_vpmovmskb();
         test_avx2_packed_byte_word_arithmetic();
         test_avx2_saturating_and_minmax_operations();
+        test_indirect_call_jump_and_push_group();
 
         test_cpu_state_reset();
         test_interpreter();

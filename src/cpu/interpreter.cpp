@@ -845,6 +845,43 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
     }
 
+    // Indirect near CALL/JMP and PUSH through the FF group.
+    if (opcode == 0xff) {
+        if (operand_size_override || prefix_f3 || prefix_f2)
+            return StepResult::UnsupportedInstruction;
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t operation =
+            static_cast<std::uint8_t>((modrm >> 3U) & 7U);
+        if (operation != 2U && operation != 4U && operation != 6U)
+            return StepResult::UnsupportedInstruction;
+        std::uint64_t target = 0;
+        if ((modrm >> 6U) == 3U) {
+            const std::size_t source =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            target = state.gpr[source];
+        } else {
+            std::uint64_t address = 0;
+            if (!decode_effective_address(state, memory, pc, modrm,
+                                          rex_b, rex_x, 0, address))
+                return StepResult::MemoryFault;
+            const auto value = memory.template read_le<std::uint64_t>(address);
+            if (!value) return StepResult::MemoryFault;
+            target = *value;
+        }
+        if (operation == 6U) {
+            if (!push64(state, memory, target)) return StepResult::MemoryFault;
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+        if (!canonical_address(target))
+            return StepResult::GeneralProtectionFault;
+        if (operation == 2U && !push64(state, memory, pc))
+            return StepResult::MemoryFault;
+        state.rip = target;
+        return StepResult::Executed;
+    }
+
     // Near relative JZ/JNZ (0F 84 / 0F 85), with a signed 32-bit offset.
     if (opcode == 0x0f) {
         std::uint8_t second = 0;

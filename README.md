@@ -17,7 +17,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Register-direct CMOVcc operations for all 16 condition codes, with 32-bit zero-extension and 64-bit operation sizes.
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
-- Near relative CALL and RET with checked guest-stack access.
+- Near relative CALL and RET with checked guest-stack access; indirect register/memory CALL and JMP plus FF-group PUSH r/m64.
 - 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement.
 - REX.R/REX.B extension for memory MOV register and base selection.
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
@@ -469,3 +469,8 @@ Added signed/unsigned saturating byte/word addition and subtraction, unsigned by
 ### v0.77.1 — Signed saturating-add opcode direction
 
 Corrected the signed saturating byte/word add selector so VPADDSB and VPADDSW add their operands rather than taking the subtraction path. The regression test exposed the issue; no other instruction behavior changed.
+
+
+### v0.78.0 — Indirect control transfer and FF-group push
+
+Added FF /2 indirect near CALL, FF /4 indirect near JMP, and FF /6 PUSH r/m64 for register and memory operands. CALL pushes the decoded next RIP; indirect branch targets are checked for canonicality. Tests cover register/memory calls, indirect jump, stack contents, and return-address placement. Other FF-group operations remain unsupported.
