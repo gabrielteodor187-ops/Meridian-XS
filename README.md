@@ -25,7 +25,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - RIP-relative 64-bit MOV loads and stores using signed disp32 offsets, including correct REX.B handling.
 - 32-bit register and immediate ADD, SUB, XOR, and CMP with 32-bit flag behaviour and architectural zero-extension into 64-bit GPRs.
 - 32-bit register-to-register MOV (both operand directions), including REX.R/REX.B extended registers and zero-extension into 64-bit GPRs.
-- Register-direct 16-bit ADD, OR, AND, SUB, XOR, and CMP with operand-size override, correct 16-bit arithmetic flags, and preservation of the destination register's upper 48 bits.
+- Register-direct and memory-destination 16-bit ADD, OR, AND, SUB, XOR, and CMP with operand-size override and correct 16-bit arithmetic flags; register destinations preserve their upper 48 bits.
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
 - Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
 - Register and memory destination 32-bit/64-bit OR and AND operations, with logical flag updates.
@@ -525,3 +525,8 @@ Added all condition-code encodings for CMOVcc register/memory sources and SETcc 
 ### v0.84.0 — 16-bit register arithmetic
 
 Added operand-size-overridden register-direct 16-bit ADD, OR, AND, SUB, XOR, and CMP operations. The implementation updates carry, parity, auxiliary-carry, zero, sign, and overflow flags at 16-bit width; writing operations preserve the upper 48 bits of the destination GPR, and CMP leaves the destination unchanged. Regression tests cover wraparound carry, equality flags, non-writing comparison, and upper-register preservation. Memory-destination 16-bit arithmetic and broader 16-bit decoder coverage remain future work.
+
+
+### v0.85.0 — 16-bit memory arithmetic
+
+Extended the existing register-to-memory arithmetic decoder to support operand-size-overridden word operations: ADD, OR, AND, SUB, XOR, and CMP. The implementation uses checked 16-bit memory reads and writes, computes flags at word width, and leaves memory unchanged for CMP. Regression coverage exercises all six operations using a base-plus-displacement address. Build/test execution still needs confirmation in the repository's CI environment.
