@@ -369,7 +369,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
 
         const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
-        if (operation != 0 && operation != 5 && operation != 6 && operation != 7)
+        if (operation != 0 && operation != 1 && operation != 4 &&
+            operation != 5 && operation != 6 && operation != 7)
             return StepResult::UnsupportedInstruction;
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
