@@ -1910,7 +1910,7 @@ void test_control_register_moves_and_invlpg() {
         std::byte{0x00}, std::byte{0x50}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x0f}, std::byte{0x22}, std::byte{0xd8},
-        std::byte{0x0f}, std::byte{0x20}, std::byte{0xd9},
+        std::byte{0x0f}, std::byte{0x20}, std::byte{0xdb},
         std::byte{0xf4}
     };
     require(physical.write(0x8000, cr_program),

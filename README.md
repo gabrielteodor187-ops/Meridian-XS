@@ -209,3 +209,8 @@ Updated the paging integration test to explicitly invalidate cached code/data tr
 ### v0.44.0 — Control registers and INVLPG
 
 Extended CpuState with CR0–CR8 storage, EFER, and CPL. Added privileged MOV between GPRs and CR0/CR2/CR3/CR4/CR8, plus INVLPG for X64PagedMemory. The paged interpreter synchronizes CR3, CPL, CR0.WP, and EFER.NXE into the memory backend before and after each instruction; CR3 or paging-mode changes flush the software TLB. Added tests for CR3 switching, reading CR3, INVLPG remapping, and ring-3 privilege faults. Full control-register validation, MSR instructions, page-fault delivery, and privilege transitions are still incomplete.
+
+
+### v0.44.1 — MOV-from-CR3 test encoding correction
+
+Corrected the ModRM register encoding in the MOV RBX, CR3 test case. The interpreter implementation was unchanged; the original test byte sequence selected RCX as the destination.
