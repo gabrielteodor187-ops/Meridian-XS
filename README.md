@@ -351,3 +351,8 @@ Added 32-bit MOVD and REX.W 64-bit MOVQ transfer forms between general-purpose r
 ### v0.60.1 — Prefix dispatch ordering
 
 Moved the strict unsupported-prefix guard after the explicitly supported MOVD/MOVQ and FXSAVE/FXRSTOR handlers. This allows 66-prefixed scalar XMM transfer instructions to reach their decoder while still rejecting unsupported prefixed two-byte opcodes.
+
+
+### v0.60.2 — MOVQ register test encoding
+
+Corrected the MOVQ XMM1-to-RCX test's ModRM byte so it selects XMM1 as the source register. The implementation was unchanged.

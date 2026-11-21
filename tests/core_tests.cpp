@@ -2886,7 +2886,7 @@ void test_movd_movq_xmm_transfers() {
         std::byte{0xc8}, // MOVQ XMM1,RAX
         std::byte{0x66}, std::byte{0x0f}, std::byte{0x7e}, std::byte{0xc2}, // MOVD EDX,XMM0
         std::byte{0x66}, std::byte{0x48}, std::byte{0x0f}, std::byte{0x7e},
-        std::byte{0xc1} // MOVQ RCX,XMM1
+        std::byte{0xc9} // MOVQ RCX,XMM1
     };
     require(memory.write(0x31000, program), "MOVD/MOVQ program should load");
     meridian::cpu::CpuState state{};
