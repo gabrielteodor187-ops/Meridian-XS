@@ -1627,6 +1627,40 @@ void test_cmovcc_register_forms() {
             "CMOVcc program should reach HLT");
 }
 
+
+void test_setcc_memory_operands() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x23000, 0x100};
+    const std::array<std::byte, 12> program{
+        // SETZ byte [RDI+1]; SETNZ byte [RIP+0x15]; HLT.
+        std::byte{0x0f}, std::byte{0x94}, std::byte{0x47}, std::byte{0x01},
+        std::byte{0x0f}, std::byte{0x95}, std::byte{0x05},
+        std::byte{0x15}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x23000, program), "memory SETcc program should load");
+    require(memory.write_le<std::uint8_t>(0x23011, 0xff),
+            "base-displacement SETcc target should initialize");
+    require(memory.write_le<std::uint8_t>(0x23020, 0xff),
+            "RIP-relative SETcc target should initialize");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x23000;
+    state.gpr[7] = 0x23010;
+    state.rflags = 0x2 | (1ULL << 6U);
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SETZ memory destination should execute");
+    require(memory.read_le<std::uint8_t>(0x23011).value_or(0xff) == 1,
+            "SETZ should write one to its memory destination");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RIP-relative SETNZ memory destination should execute");
+    require(memory.read_le<std::uint8_t>(0x23020).value_or(0xff) == 0,
+            "SETNZ should write zero when its condition is false");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "memory SETcc program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1666,6 +1700,7 @@ int main() {
         test_near_unsigned_condition_branch();
         test_setcc_register_forms();
         test_cmovcc_register_forms();
+        test_setcc_memory_operands();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

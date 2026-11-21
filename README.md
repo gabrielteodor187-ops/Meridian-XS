@@ -13,7 +13,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Initial instruction interpreter: NOP, HLT, and MOV register-immediate.
 - Register-only 64-bit ADD, SUB, XOR, and CMP instructions.
 - Short JMP and all 16 x86 condition-code branches, plus near 32-bit conditional branches.
-- Register-direct SETcc byte operations for all 16 condition codes, including legacy high-byte and REX extended-byte register selection.
+- SETcc byte operations for all 16 condition codes, with register and supported memory destinations, including legacy high-byte and REX extended-byte register selection.
 - Register-direct CMOVcc operations for all 16 condition codes, with 32-bit zero-extension and 64-bit operation sizes.
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
@@ -166,3 +166,8 @@ Corrected the conditional-branch test fixture so the displacement and branch bod
 ### v0.38.0 — CMOVcc register forms
 
 Added the register-direct CMOVcc family for all 16 x86 condition codes. A true condition copies the source register; a false condition leaves the destination unchanged. REX.R/REX.B extended registers and 32-bit destination zero-extension are supported. Memory-source CMOVcc and 16-bit operand-size overrides remain unsupported. Tests cover true/false conditions and extended 64-bit registers.
+
+
+### v0.39.0 — SETcc memory destinations
+
+Extended SETcc to write byte results to guest memory using base/displacement, SIB, no-base SIB, and RIP-relative addressing. Added a shared checked effective-address decoder for this path. Memory writes use the normal backend, so bounds and virtual-page write permissions are enforced. Tests cover base-plus-disp8 and RIP-relative stores.
