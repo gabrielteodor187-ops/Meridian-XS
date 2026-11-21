@@ -157,6 +157,36 @@ void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
     update_common_flags32(state, result);
 }
 
+void update_common_flags16(CpuState& state, std::uint16_t result) noexcept {
+    if (result == 0) state.rflags |= flag_zf;
+    if ((result & 0x8000U) != 0) state.rflags |= flag_sf;
+    if ((std::popcount(static_cast<std::uint8_t>(result)) & 1) == 0)
+        state.rflags |= flag_pf;
+}
+
+void update_add_flags16(CpuState& state, std::uint16_t lhs, std::uint16_t rhs,
+                        std::uint16_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (static_cast<std::uint32_t>(lhs) + rhs > 0xffffU) state.rflags |= flag_cf;
+    if (((~(lhs ^ rhs) & (lhs ^ result)) & 0x8000U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags16(state, result);
+}
+
+void update_sub_flags16(CpuState& state, std::uint16_t lhs, std::uint16_t rhs,
+                        std::uint16_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (lhs < rhs) state.rflags |= flag_cf;
+    if ((((lhs ^ rhs) & (lhs ^ result)) & 0x8000U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags16(state, result);
+}
+
+void update_logic_flags16(CpuState& state, std::uint16_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    update_common_flags16(state, result);
+}
+
 
 struct SignedMultiplyResult {
     std::uint64_t value{0};
@@ -3114,6 +3144,46 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
         const std::size_t source = static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+        if (operand_size_override && !rex_w) {
+            const std::uint16_t lhs = static_cast<std::uint16_t>(state.gpr[destination]);
+            const std::uint16_t rhs = static_cast<std::uint16_t>(state.gpr[source]);
+            std::uint16_t result = 0;
+            switch (opcode) {
+            case 0x01:
+                result = static_cast<std::uint16_t>(lhs + rhs);
+                update_add_flags16(state, lhs, rhs, result);
+                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
+                break;
+            case 0x09:
+                result = static_cast<std::uint16_t>(lhs | rhs);
+                update_logic_flags16(state, result);
+                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
+                break;
+            case 0x21:
+                result = static_cast<std::uint16_t>(lhs & rhs);
+                update_logic_flags16(state, result);
+                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
+                break;
+            case 0x29:
+                result = static_cast<std::uint16_t>(lhs - rhs);
+                update_sub_flags16(state, lhs, rhs, result);
+                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
+                break;
+            case 0x31:
+                result = static_cast<std::uint16_t>(lhs ^ rhs);
+                update_logic_flags16(state, result);
+                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
+                break;
+            case 0x39:
+                result = static_cast<std::uint16_t>(lhs - rhs);
+                update_sub_flags16(state, lhs, rhs, result);
+                break;
+            default:
+                return StepResult::UnsupportedInstruction;
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
         if (!rex_w) {
             const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination]);
             const std::uint32_t rhs = static_cast<std::uint32_t>(state.gpr[source]);
