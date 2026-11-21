@@ -2702,7 +2702,7 @@ void test_sse2_packed_compare_and_movemask() {
 
 void test_sse2_pshufd_and_shufps() {
     using meridian::cpu::StepResult;
-    meridian::core::GuestMemory memory{0x2e000, 64};
+    meridian::core::GuestMemory memory{0x2e000, 0x100};
     const std::array<std::byte, 6> pshufd{
         std::byte{0x66}, std::byte{0x0f}, std::byte{0x70},
         std::byte{0xc1}, std::byte{0x1b}, std::byte{0xf4}

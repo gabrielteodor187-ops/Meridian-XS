@@ -329,3 +329,8 @@ Corrected the SIMD memory-source path to read operands for PSHUFD/SHUFPS. Added 
 ### v0.58.2 — Strict unsupported-prefix handling
 
 Added a guard so legacy prefixes are not silently ignored by unrelated two-byte opcodes. A regression test verifies that an operand-size-prefixed near conditional branch is rejected rather than incorrectly executed as a 32-bit branch.
+
+
+### v0.58.3 — Shuffle fixture memory bounds
+
+Expanded the PSHUFD/SHUFPS test's guest-memory fixture so its RIP-relative instruction and source vector fit within the allocated region. The previous fixture ended exactly where the new instruction was written.
