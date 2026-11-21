@@ -25,6 +25,7 @@ public:
     template <typename T>
         requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
     [[nodiscard]] std::optional<T> read_le(std::uint64_t address) const noexcept {
+        if (!contains(address, sizeof(T))) return std::nullopt;
         T value = 0;
         for (std::size_t i = 0; i < sizeof(T); ++i) {
             std::byte byte{};
@@ -37,6 +38,7 @@ public:
     template <typename T>
         requires(std::is_integral_v<T> && std::is_unsigned_v<T>)
     [[nodiscard]] bool write_le(std::uint64_t address, T value) noexcept {
+        if (!contains(address, sizeof(T))) return false;
         for (std::size_t i = 0; i < sizeof(T); ++i) {
             const auto byte = static_cast<std::byte>((value >> (i * 8)) & 0xffU);
             if (!write(address + i, std::span<const std::byte>{&byte, 1})) return false;
