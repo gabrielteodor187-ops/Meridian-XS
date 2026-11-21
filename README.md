@@ -12,6 +12,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - x86-64 architectural CPU state container.
 - Initial instruction interpreter: NOP, HLT, and MOV register-immediate.
 - Register-only 64-bit ADD, SUB, XOR, and CMP instructions.
+- Short JMP, JZ, and JNZ branches plus near 32-bit JZ/JNZ branches.
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
@@ -32,7 +33,7 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 
 ## Development direction
 
-1. Expand x86-64 decoding, including branches, stack, and memory instructions.
+1. Expand x86-64 decoding, including stack and memory instructions.
 2. Build a mapped address-space model with page permissions.
 3. Add interrupts, scheduling, and system-call/platform abstractions.
 4. Research graphics command translation and console-specific interfaces using public documentation.
