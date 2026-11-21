@@ -1588,6 +1588,45 @@ void test_setcc_register_forms() {
             "SETcc program should reach HLT");
 }
 
+
+void test_cmovcc_register_forms() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x22000, 32};
+    const std::array<std::byte, 13> program{
+        // CMOVZ RAX, RCX; CMOVNZ RBX, RDX; CMOVB R9, R10; HLT.
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0x44}, std::byte{0xc1},
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0x45}, std::byte{0xda},
+        std::byte{0x4d}, std::byte{0x0f}, std::byte{0x42}, std::byte{0xca},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x22000, program), "CMOVcc program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x22000;
+    state.rflags = 0x2 | (1ULL << 6U) | (1ULL << 0U);
+    state.gpr[0] = 0x10;
+    state.gpr[1] = 0x20;
+    state.gpr[3] = 0x30;
+    state.gpr[2] = 0x40;
+    state.gpr[9] = 0x50;
+    state.gpr[10] = 0x60;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CMOVZ should execute when ZF is set");
+    require(state.gpr[0] == 0x20,
+            "CMOVZ should copy its source when the condition is true");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CMOVNZ should execute when ZF is set");
+    require(state.gpr[3] == 0x30,
+            "CMOVNZ should preserve its destination when the condition is false");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "REX-extended CMOVB should execute");
+    require(state.gpr[9] == 0x60,
+            "CMOVB should support REX.R/REX.B extended registers");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "CMOVcc program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1626,6 +1665,7 @@ int main() {
         test_all_short_condition_codes();
         test_near_unsigned_condition_branch();
         test_setcc_register_forms();
+        test_cmovcc_register_forms();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

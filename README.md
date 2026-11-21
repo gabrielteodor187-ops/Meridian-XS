@@ -14,6 +14,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Register-only 64-bit ADD, SUB, XOR, and CMP instructions.
 - Short JMP and all 16 x86 condition-code branches, plus near 32-bit conditional branches.
 - Register-direct SETcc byte operations for all 16 condition codes, including legacy high-byte and REX extended-byte register selection.
+- Register-direct CMOVcc operations for all 16 condition codes, with 32-bit zero-extension and 64-bit operation sizes.
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
 - Near relative CALL and RET with checked guest-stack access.
@@ -160,3 +161,8 @@ Improved the short-condition regression test failure output to identify the exac
 ### v0.37.2 — Branch test layout correction
 
 Corrected the conditional-branch test fixture so the displacement and branch body are written after the opcode byte rather than over it. Kept opcode/flag diagnostics for future regressions. No interpreter behavior changed in this patch.
+
+
+### v0.38.0 — CMOVcc register forms
+
+Added the register-direct CMOVcc family for all 16 x86 condition codes. A true condition copies the source register; a false condition leaves the destination unchanged. REX.R/REX.B extended registers and 32-bit destination zero-extension are supported. Memory-source CMOVcc and 16-bit operand-size overrides remain unsupported. Tests cover true/false conditions and extended 64-bit registers.

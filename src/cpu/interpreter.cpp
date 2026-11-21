@@ -189,6 +189,24 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        // CMOVcc r16/r32/r64, r/m. Register-direct source forms are supported.
+        if (second >= 0x40 && second <= 0x4f) {
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if ((modrm & 0xc0U) != 0xc0U)
+                return StepResult::UnsupportedInstruction;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t source =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            if (condition_true(static_cast<std::uint8_t>(second & 0x0fU), state.rflags)) {
+                state.gpr[destination] = rex_w ? state.gpr[source]
+                    : static_cast<std::uint32_t>(state.gpr[source]);
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // SETcc r/m8. This first implementation supports register destinations.
         if (second >= 0x90 && second <= 0x9f) {
             std::uint8_t modrm = 0;
