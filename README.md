@@ -92,3 +92,8 @@ Extended C7 /0 to memory destinations, including base-plus-displacement and SIB 
 ### v0.27.0 — RIP-relative C7 immediate MOV
 
 Added RIP-relative addressing for C7 memory destinations. The effective address is calculated from the instruction pointer after the complete instruction, including both displacement and immediate fields. An automated test verifies the exact target address and stored value.
+
+
+### v0.28.0 — C7 virtual-memory permission coverage
+
+Added an end-to-end test for C7 immediate stores through the CPU's virtual-address-space overload. A write to a read-only mapped data page must return MemoryFault, leave RIP unchanged, and preserve backing memory. This validates the new immediate-store path against the same page permissions used by ordinary CPU memory operations.

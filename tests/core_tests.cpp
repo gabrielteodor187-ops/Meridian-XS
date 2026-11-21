@@ -1166,6 +1166,39 @@ void test_mov_immediate_c7_rip_relative() {
             "RIP-relative C7 program should reach HLT");
 }
 
+
+void test_c7_memory_write_permissions_in_virtual_space() {
+    using meridian::core::PagePermissions;
+    using meridian::core::VirtualAddressSpace;
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory backing{0x70000, 2 * VirtualAddressSpace::page_size};
+    VirtualAddressSpace space{};
+    require(space.map(0xa00000, backing, 0x70000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, false, true}),
+            "C7 code page should map read/execute");
+    require(space.map(0xb00000, backing, 0x71000, VirtualAddressSpace::page_size,
+                      PagePermissions{true, false, false}),
+            "C7 data page should map read-only");
+
+    const std::array<std::byte, 6> program{
+        // MOV dword [RDI], 0x12345678.
+        std::byte{0xc7}, std::byte{0x07},
+        std::byte{0x78}, std::byte{0x56}, std::byte{0x34}, std::byte{0x12}
+    };
+    require(backing.write(0x70000, program), "C7 virtual-memory program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xa00000;
+    state.gpr[7] = 0xb00000;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, space) == StepResult::MemoryFault,
+            "C7 memory MOV must respect virtual-page write permissions");
+    require(state.rip == 0xa00000,
+            "rejected C7 virtual-memory store must leave RIP unchanged");
+    require(backing.read_le<std::uint32_t>(0x71000).value_or(0) == 0,
+            "rejected C7 store must not modify read-only backing memory");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1193,6 +1226,7 @@ int main() {
         test_mov_immediate_group_c7();
         test_mov_immediate_c7_memory();
         test_mov_immediate_c7_rip_relative();
+        test_c7_memory_write_permissions_in_virtual_space();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
