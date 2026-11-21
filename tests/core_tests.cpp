@@ -679,6 +679,50 @@ void test_memory_arithmetic() {
             "memory arithmetic program should reach HLT");
 }
 
+void test_16bit_memory_arithmetic() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x12000, 0x200};
+    const std::array<std::byte, 22> program{
+        // ADD/OR/AND/SUB/CMP word [RDI+2], CX/DX; XOR word [RDI+4], CX.
+        std::byte{0x66}, std::byte{0x01}, std::byte{0x4f}, std::byte{0x02},
+        std::byte{0x66}, std::byte{0x09}, std::byte{0x4f}, std::byte{0x02},
+        std::byte{0x66}, std::byte{0x21}, std::byte{0x57}, std::byte{0x02},
+        std::byte{0x66}, std::byte{0x29}, std::byte{0x57}, std::byte{0x02},
+        std::byte{0x66}, std::byte{0x31}, std::byte{0x4f}, std::byte{0x04},
+        std::byte{0xf4}, std::byte{0x90}
+    };
+    require(memory.write(0x12000, program), "16-bit memory arithmetic program should load");
+    require(memory.write_le<std::uint16_t>(0x12082, 0x0010U),
+            "initial word operand should be written");
+    require(memory.write_le<std::uint16_t>(0x12084, 0x00ffU),
+            "second word operand should be written");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x12000;
+    state.gpr[7] = 0x12080;
+    state.gpr[1] = 0x0003U;
+    state.gpr[2] = 0x0007U;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x12082).value_or(0) == 0x0013U,
+            "16-bit memory ADD should store the low-word result");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x12082).value_or(0) == 0x0013U,
+            "16-bit memory OR should preserve an already-set bit pattern");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x12082).value_or(0) == 0x0003U,
+            "16-bit memory AND should store its result");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x12082).value_or(0) == 0xfffcU,
+            "16-bit memory SUB should wrap and store its result");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x12084).value_or(0) == 0x00fcU,
+            "16-bit memory XOR should store its result");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "16-bit memory arithmetic program should reach HLT");
+}
+
 void test_memory_arithmetic_extended_addressing() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x11000, 0x200};
@@ -4586,6 +4630,7 @@ int main() {
         test_32bit_memory_mov();
         test_test_instruction();
         test_memory_arithmetic();
+        test_16bit_memory_arithmetic();
         test_memory_arithmetic_extended_addressing();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
