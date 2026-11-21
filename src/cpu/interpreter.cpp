@@ -143,6 +143,20 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    bool rex_w = false;
+    bool rex_r = false;
+    bool rex_x = false;
+    bool rex_b = false;
+    bool rex_present = false;
+    if (opcode >= 0x40 && opcode <= 0x4f) {
+        rex_present = true;
+        rex_w = (opcode & 0x08U) != 0;
+        rex_r = (opcode & 0x04U) != 0;
+        rex_x = (opcode & 0x02U) != 0;
+        rex_b = (opcode & 0x01U) != 0;
+        if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
+    }
+
     // Near relative JZ/JNZ (0F 84 / 0F 85), with a signed 32-bit offset.
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
@@ -179,20 +193,6 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         const bool take = second == 0x84 ? zero : !zero;
         state.rip = take ? pc + static_cast<std::int64_t>(displacement) : pc;
         return StepResult::Executed;
-    }
-
-    bool rex_w = false;
-    bool rex_r = false;
-    bool rex_x = false;
-    bool rex_b = false;
-    bool rex_present = false;
-    if (opcode >= 0x40 && opcode <= 0x4f) {
-        rex_present = true;
-        rex_w = (opcode & 0x08U) != 0;
-        rex_r = (opcode & 0x04U) != 0;
-        rex_x = (opcode & 0x02U) != 0;
-        rex_b = (opcode & 0x01U) != 0;
-        if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
     }
 
     // PUSH/POP 64-bit general-purpose registers. REX.B selects R8-R15.
