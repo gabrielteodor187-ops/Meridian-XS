@@ -2519,7 +2519,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
                                         (rex_b ? 8U : 0U);
-        const std::size_t immediate_size = opcode == 0x83 ? 1U : 4U;
+        const std::size_t immediate_size = opcode == 0x83 ? 1U :
+            (operand_size_override && !rex_w ? 2U : 4U);
         std::uint64_t address = 0;
         if (mod != 3 &&
             !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x,
@@ -2532,6 +2533,11 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
             raw_immediate = static_cast<std::uint32_t>(
                 static_cast<std::int32_t>(std::bit_cast<std::int8_t>(raw)));
+        } else if (operand_size_override && !rex_w) {
+            const auto raw = memory.template fetch_le<std::uint16_t>(pc);
+            if (!raw) return StepResult::MemoryFault;
+            raw_immediate = *raw;
+            pc += 2;
         } else {
             const auto raw = memory.template fetch_le<std::uint32_t>(pc);
             if (!raw) return StepResult::MemoryFault;
@@ -2539,7 +2545,36 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             pc += 4;
         }
 
-        if (rex_w) {
+        if (operand_size_override && !rex_w) {
+            const std::uint16_t rhs = opcode == 0x83
+                ? static_cast<std::uint16_t>(static_cast<std::int16_t>(
+                      std::bit_cast<std::int8_t>(static_cast<std::uint8_t>(raw_immediate))))
+                : static_cast<std::uint16_t>(raw_immediate);
+            std::uint16_t lhs = 0;
+            if (mod == 3) {
+                lhs = static_cast<std::uint16_t>(state.gpr[destination]);
+            } else {
+                const auto loaded = memory.template read_le<std::uint16_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                lhs = *loaded;
+            }
+            std::uint16_t result = 0;
+            switch (operation) {
+            case 0: result = static_cast<std::uint16_t>(lhs + rhs); update_add_flags16(state, lhs, rhs, result); break;
+            case 1: result = static_cast<std::uint16_t>(lhs | rhs); update_logic_flags16(state, result); break;
+            case 4: result = static_cast<std::uint16_t>(lhs & rhs); update_logic_flags16(state, result); break;
+            case 5: result = static_cast<std::uint16_t>(lhs - rhs); update_sub_flags16(state, lhs, rhs, result); break;
+            case 6: result = static_cast<std::uint16_t>(lhs ^ rhs); update_logic_flags16(state, result); break;
+            case 7: result = static_cast<std::uint16_t>(lhs - rhs); update_sub_flags16(state, lhs, rhs, result); break;
+            default: return StepResult::UnsupportedInstruction;
+            }
+            if (operation != 7) {
+                if (mod == 3)
+                    state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
+                else if (!memory.template write_le<std::uint16_t>(address, result))
+                    return StepResult::MemoryFault;
+            }
+        } else if (rex_w) {
             const std::int64_t signed_immediate = opcode == 0x83
                 ? static_cast<std::int64_t>(std::bit_cast<std::int8_t>(
                       static_cast<std::uint8_t>(raw_immediate)))
