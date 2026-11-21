@@ -37,7 +37,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Read-only XVD/XVC header and descriptor metadata inspection, including region layout (no decryption or package extraction).
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
-- CTest-based tests for memory, CPU state, executable-image parsing, and supported instructions.
+- Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
+- CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
 ## Build and test
@@ -282,3 +283,8 @@ Extended the read-only XVD/XVC inspector to derive the XVC metadata offset from 
 ### v0.53.1 — XVD header fixture sizing
 
 Expanded the header-only synthetic XVC fixture to include the metadata bytes declared by its header. The parser correctly rejected the earlier fixture because its declared XVC descriptor lay beyond the supplied file buffer; no parser behavior changed.
+
+
+### v0.54.0 — Bounded guest execution engine
+
+Added an execution loop over all three guest memory backends (bounded RAM, virtual address space, and CR3-backed paged memory). It stops on HLT, reports the first execution fault, or enforces a caller-supplied instruction budget. Tests cover a small program reaching HLT, an infinite guest loop stopped by the budget, and a zero budget. This provides a controlled execution harness; it does not add Xbox OS services or make commercial games compatible.

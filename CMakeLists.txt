@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MeridianXS VERSION 0.53.1 LANGUAGES CXX)
+project(MeridianXS VERSION 0.54.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -15,6 +15,7 @@ set(MERIDIAN_CORE_SOURCES
     src/core/x64_guest_image_mapper.cpp
     src/cpu/cpu_state.cpp
     src/cpu/interpreter.cpp
+    src/cpu/execution_engine.cpp
 )
 
 add_executable(meridian-xs src/main.cpp ${MERIDIAN_CORE_SOURCES})

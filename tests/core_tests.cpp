@@ -6,6 +6,7 @@
 #include "meridian/core/xvd_container_reader.hpp"
 #include "meridian/cpu/cpu_state.hpp"
 #include "meridian/cpu/interpreter.hpp"
+#include "meridian/cpu/execution_engine.hpp"
 
 #include <array>
 #include <vector>
@@ -2465,6 +2466,42 @@ void test_xvc_descriptor_region_metadata() {
             "impossible XVC region counts should be rejected");
 }
 
+
+void test_bounded_execution_engine() {
+    using meridian::cpu::ExecutionEngine;
+    using meridian::cpu::RunStopReason;
+    meridian::core::GuestMemory memory{0x2a000, 64};
+    const std::array<std::byte, 6> finite_program{
+        std::byte{0xb8}, std::byte{0x2a}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0xf4}
+    };
+    require(memory.write(0x2a000, finite_program),
+            "bounded execution program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x2a000;
+    const ExecutionEngine engine{};
+    const auto halted = engine.run(state, memory, 10);
+    require(halted.reason == RunStopReason::Halted && halted.steps == 2,
+            "execution engine should stop on HLT within the instruction budget");
+    require(state.gpr[0] == 42,
+            "execution engine should preserve guest instruction effects");
+
+    const std::array<std::byte, 2> loop{
+        std::byte{0xeb}, std::byte{0xfe}
+    };
+    require(memory.write(0x2a020, loop), "infinite-loop test should load");
+    meridian::cpu::CpuState looping{};
+    looping.rip = 0x2a020;
+    const auto limited = engine.run(looping, memory, 5);
+    require(limited.reason == RunStopReason::InstructionLimit &&
+            limited.steps == 5 && looping.rip == 0x2a020,
+            "execution engine should stop an infinite guest loop at its budget");
+    const auto zero_budget = engine.run(looping, memory, 0);
+    require(zero_budget.reason == RunStopReason::InstructionLimit &&
+            zero_budget.steps == 0,
+            "zero instruction budget should execute no guest instructions");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2521,6 +2558,7 @@ int main() {
         test_pe32_plus_image_loader();
         test_xvd_xvc_header_metadata_reader();
         test_xvc_descriptor_region_metadata();
+        test_bounded_execution_engine();
 
         test_cpu_state_reset();
         test_interpreter();
