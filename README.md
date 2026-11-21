@@ -18,7 +18,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
 - Near relative CALL and RET with checked guest-stack access; indirect register/memory CALL and JMP plus FF-group PUSH r/m64.
-- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation, MOVSXD r64,r/m32, MOVZX/MOVSX byte/word source forms, and signed two-/three-operand IMUL forms; SHL/SHR/SAR group-2 shifts with immediate, one, and CL counts.
+- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation, MOVSXD r64,r/m32, MOVZX/MOVSX byte/word source forms, and signed two-/three-operand IMUL forms; SHL/SHR/SAR group-2 shifts with immediate, one, and CL counts; CMOVcc and SETcc conditional operations.
 - REX.R/REX.B extension for memory MOV register and base selection.
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
@@ -514,3 +514,8 @@ Added 16-/32-/64-bit SHL, SHR, and SAR with immediate, implicit-one, and CL-supp
 ### v0.82.1 — Memory shift displacement/immediate ordering
 
 Corrected group-2 immediate shifts with memory operands to decode addressing displacement bytes before fetching the trailing imm8. Added a qword [base+disp8] regression test. Register shift behavior is unchanged.
+
+
+### v0.83.0 — CMOVcc and SETcc
+
+Added all condition-code encodings for CMOVcc register/memory sources and SETcc register/memory destinations. CMOV memory operands are read even when the condition is false; 32-bit destinations zero-extend, 16-bit destinations preserve upper bits, and SETcc respects legacy high-byte versus REX low-byte register selection. Tests cover CMOVZ/CMOVNZ and SETZ/SETNZ.

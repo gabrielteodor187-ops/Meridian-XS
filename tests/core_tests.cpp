@@ -4372,6 +4372,62 @@ void test_shl_shr_sar_group2() {
             "SHL qword [RAX+disp8],imm8 should decode displacement before immediate");
 }
 
+
+void test_cmovcc_and_setcc() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33500, 0x100};
+    const std::array<std::byte, 4> cmovz{
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0x44}, std::byte{0xc1}
+    };
+    const std::array<std::byte, 4> cmovnz{
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0x45}, std::byte{0xc1}
+    };
+    const std::array<std::byte, 3> setz_ah{
+        std::byte{0x0f}, std::byte{0x94}, std::byte{0xc4}
+    };
+    const std::array<std::byte, 3> setnz_memory{
+        std::byte{0x0f}, std::byte{0x95}, std::byte{0x03}
+    };
+    require(memory.write(0x33500, cmovz), "CMOVZ instruction should load");
+    require(memory.write(0x33510, cmovnz), "CMOVNZ instruction should load");
+    require(memory.write(0x33520, setz_ah), "SETZ AH instruction should load");
+    require(memory.write(0x33530, setnz_memory), "SETNZ memory instruction should load");
+    const meridian::cpu::Interpreter interpreter{};
+
+    meridian::cpu::CpuState cmov_state{};
+    cmov_state.rip = 0x33500;
+    cmov_state.rflags |= 1ULL << 6U; // ZF
+    cmov_state.gpr[0] = 1;
+    cmov_state.gpr[1] = 0x123456789abcdef0ULL;
+    require(interpreter.step(cmov_state, memory) == StepResult::Executed &&
+            cmov_state.gpr[0] == 0x123456789abcdef0ULL,
+            "CMOVZ should copy the source when ZF is set");
+
+    cmov_state.rip = 0x33510;
+    cmov_state.gpr[0] = 0x55;
+    require(interpreter.step(cmov_state, memory) == StepResult::Executed &&
+            cmov_state.gpr[0] == 0x55,
+            "CMOVNZ should preserve the destination when ZF is set");
+
+    meridian::cpu::CpuState set_state{};
+    set_state.rip = 0x33520;
+    set_state.rflags |= 1ULL << 6U;
+    set_state.gpr[0] = 0x1122334455667788ULL;
+    require(interpreter.step(set_state, memory) == StepResult::Executed &&
+            set_state.gpr[0] == 0x1122334455660188ULL,
+            "SETZ AH should update only the high byte when no REX prefix is present");
+
+    meridian::cpu::CpuState memory_state{};
+    memory_state.rip = 0x33530;
+    memory_state.gpr[3] = 0x33580;
+    memory_state.rflags |= 1ULL << 6U;
+    require(interpreter.step(memory_state, memory) == StepResult::Executed,
+            "SETNZ memory should execute");
+    std::array<std::byte, 1> stored{};
+    require(memory.read(0x33580, stored) && stored[0] == std::byte{0},
+            "SETNZ should store zero when ZF is set");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4464,6 +4520,7 @@ int main() {
         test_movzx_movsx_byte_word_sources();
         test_imul_register_and_immediate_forms();
         test_shl_shr_sar_group2();
+        test_cmovcc_and_setcc();
 
         test_cpu_state_reset();
         test_interpreter();

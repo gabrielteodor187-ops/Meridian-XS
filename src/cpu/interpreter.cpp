@@ -1148,6 +1148,84 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
 
+        // CMOVcc r16/32/64, r/m16/32/64.
+        if (second >= 0x40 && second <= 0x4f) {
+            if (prefix_f3 || prefix_f2)
+                return StepResult::UnsupportedInstruction;
+            const std::size_t width = rex_w ? 8U : (operand_size_override ? 2U : 4U);
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            std::uint64_t source = 0;
+            if ((modrm >> 6U) == 3U) {
+                const std::size_t source_register =
+                    static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+                source = state.gpr[source_register];
+            } else {
+                std::uint64_t address = 0;
+                if (!decode_effective_address(state, memory, pc, modrm,
+                                              rex_b, rex_x, 0, address))
+                    return StepResult::MemoryFault;
+                if (width == 2U) {
+                    const auto value = memory.template read_le<std::uint16_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                } else if (width == 4U) {
+                    const auto value = memory.template read_le<std::uint32_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                } else {
+                    const auto value = memory.template read_le<std::uint64_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                }
+            }
+            if (condition_true(static_cast<std::uint8_t>(second & 0x0fU),
+                               state.rflags)) {
+                if (width == 8U) state.gpr[destination] = source;
+                else if (width == 4U)
+                    state.gpr[destination] = static_cast<std::uint32_t>(source);
+                else
+                    state.gpr[destination] =
+                        (state.gpr[destination] & ~0xffffULL) | (source & 0xffffULL);
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
+        // SETcc r/m8.
+        if (second >= 0x90 && second <= 0x9f) {
+            if (prefix_f3 || prefix_f2 || operand_size_override)
+                return StepResult::UnsupportedInstruction;
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if (((modrm >> 3U) & 7U) != 0U)
+                return StepResult::UnsupportedInstruction;
+            const std::uint8_t value = condition_true(
+                static_cast<std::uint8_t>(second & 0x0fU), state.rflags) ? 1U : 0U;
+            if ((modrm >> 6U) == 3U) {
+                const std::size_t target =
+                    static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+                if (!rex_present && target >= 4U && target <= 7U) {
+                    const std::size_t base = target - 4U;
+                    state.gpr[base] = (state.gpr[base] & ~0xff00ULL) |
+                                      (static_cast<std::uint64_t>(value) << 8U);
+                } else {
+                    state.gpr[target] = (state.gpr[target] & ~0xffULL) | value;
+                }
+            } else {
+                std::uint64_t address = 0;
+                if (!decode_effective_address(state, memory, pc, modrm,
+                                              rex_b, rex_x, 0, address))
+                    return StepResult::MemoryFault;
+                const std::array<std::byte, 1> byte{static_cast<std::byte>(value)};
+                if (!memory.write(address, byte)) return StepResult::MemoryFault;
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // MOVZX/MOVSX byte and word sources into 16/32/64-bit GPR destinations.
         if (second == 0xb6 || second == 0xb7 ||
             second == 0xbe || second == 0xbf) {
