@@ -157,6 +157,44 @@ void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
     update_common_flags32(state, result);
 }
 
+void update_common_flags8(CpuState& state, std::uint8_t result) noexcept {
+    if (result == 0) state.rflags |= flag_zf;
+    if ((result & 0x80U) != 0) state.rflags |= flag_sf;
+    if ((std::popcount(result) & 1) == 0) state.rflags |= flag_pf;
+}
+void update_add_flags8(CpuState& state, std::uint8_t lhs, std::uint8_t rhs, std::uint8_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (static_cast<unsigned>(lhs) + rhs > 0xffU) state.rflags |= flag_cf;
+    if (((~(lhs ^ rhs) & (lhs ^ result)) & 0x80U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags8(state, result);
+}
+void update_sub_flags8(CpuState& state, std::uint8_t lhs, std::uint8_t rhs, std::uint8_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (lhs < rhs) state.rflags |= flag_cf;
+    if ((((lhs ^ rhs) & (lhs ^ result)) & 0x80U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags8(state, result);
+}
+void update_logic_flags8(CpuState& state, std::uint8_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    update_common_flags8(state, result);
+}
+void update_adc_flags8(CpuState& state, std::uint8_t lhs, std::uint8_t rhs, bool carry_in, std::uint8_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (static_cast<unsigned>(lhs) + rhs + (carry_in ? 1U : 0U) > 0xffU) state.rflags |= flag_cf;
+    if (((~(lhs ^ rhs) & (lhs ^ result)) & 0x80U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags8(state, result);
+}
+void update_sbb_flags8(CpuState& state, std::uint8_t lhs, std::uint8_t rhs, bool borrow_in, std::uint8_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (lhs < rhs || (borrow_in && lhs == rhs)) state.rflags |= flag_cf;
+    if ((((lhs ^ rhs) & (lhs ^ result)) & 0x80U) != 0) state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags8(state, result);
+}
+
 void update_common_flags16(CpuState& state, std::uint16_t result) noexcept {
     if (result == 0) state.rflags |= flag_zf;
     if ((result & 0x8000U) != 0) state.rflags |= flag_sf;
@@ -2556,6 +2594,59 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             if (!immediate) return StepResult::MemoryFault;
             state.gpr[reg] = *immediate;
             pc += 4;
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
+    // Group-1 byte immediate arithmetic (80): all eight ALU operations.
+    if (opcode == 0x80) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
+        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+        std::uint64_t address = 0;
+        if (mod != 3 && !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x, 1U, address))
+            return StepResult::MemoryFault;
+        std::uint8_t immediate = 0;
+        if (!fetch8(memory, pc, immediate)) return StepResult::MemoryFault;
+
+        std::uint8_t lhs = 0;
+        if (mod == 3) {
+            if (!rex_present && destination >= 4U && destination <= 7U)
+                lhs = static_cast<std::uint8_t>(state.gpr[destination - 4U] >> 8U);
+            else
+                lhs = static_cast<std::uint8_t>(state.gpr[destination]);
+        } else {
+            const auto loaded = memory.template read_le<std::uint8_t>(address);
+            if (!loaded) return StepResult::MemoryFault;
+            lhs = *loaded;
+        }
+
+        std::uint8_t result = 0;
+        switch (operation) {
+        case 0: result = static_cast<std::uint8_t>(lhs + immediate); update_add_flags8(state, lhs, immediate, result); break;
+        case 1: result = static_cast<std::uint8_t>(lhs | immediate); update_logic_flags8(state, result); break;
+        case 2: { const bool carry_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint8_t>(lhs + immediate + (carry_in ? 1U : 0U)); update_adc_flags8(state, lhs, immediate, carry_in, result); break; }
+        case 3: { const bool borrow_in = (state.rflags & flag_cf) != 0; result = static_cast<std::uint8_t>(lhs - immediate - (borrow_in ? 1U : 0U)); update_sbb_flags8(state, lhs, immediate, borrow_in, result); break; }
+        case 4: result = static_cast<std::uint8_t>(lhs & immediate); update_logic_flags8(state, result); break;
+        case 5: result = static_cast<std::uint8_t>(lhs - immediate); update_sub_flags8(state, lhs, immediate, result); break;
+        case 6: result = static_cast<std::uint8_t>(lhs ^ immediate); update_logic_flags8(state, result); break;
+        case 7: result = static_cast<std::uint8_t>(lhs - immediate); update_sub_flags8(state, lhs, immediate, result); break;
+        }
+        if (operation != 7U) {
+            if (mod == 3) {
+                if (!rex_present && destination >= 4U && destination <= 7U) {
+                    const std::size_t high_reg = destination - 4U;
+                    state.gpr[high_reg] = (state.gpr[high_reg] & ~0xff00ULL) |
+                                          (static_cast<std::uint64_t>(result) << 8U);
+                } else {
+                    state.gpr[destination] = (state.gpr[destination] & ~0xffULL) | result;
+                }
+            } else if (!memory.template write_le<std::uint8_t>(address, result)) {
+                return StepResult::MemoryFault;
+            }
         }
         state.rip = pc;
         return StepResult::Executed;
