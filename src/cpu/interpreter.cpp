@@ -60,6 +60,38 @@ void update_logic_flags(CpuState& state, std::uint64_t result) noexcept {
     state.rflags &= ~arithmetic_flags;
     update_common_flags(state, result);
 }
+
+void update_common_flags32(CpuState& state, std::uint32_t result) noexcept {
+    if (result == 0) state.rflags |= flag_zf;
+    if ((result & 0x80000000U) != 0) state.rflags |= flag_sf;
+    if ((std::popcount(static_cast<std::uint8_t>(result)) & 1) == 0)
+        state.rflags |= flag_pf;
+}
+
+void update_add_flags32(CpuState& state, std::uint32_t lhs, std::uint32_t rhs,
+                        std::uint32_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (result < lhs) state.rflags |= flag_cf;
+    if (((~(lhs ^ rhs) & (lhs ^ result)) & 0x80000000U) != 0)
+        state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags32(state, result);
+}
+
+void update_sub_flags32(CpuState& state, std::uint32_t lhs, std::uint32_t rhs,
+                        std::uint32_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    if (lhs < rhs) state.rflags |= flag_cf;
+    if ((((lhs ^ rhs) & (lhs ^ result)) & 0x80000000U) != 0)
+        state.rflags |= flag_of;
+    if (((lhs ^ rhs ^ result) & 0x10U) != 0) state.rflags |= flag_af;
+    update_common_flags32(state, result);
+}
+
+void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
+    state.rflags &= ~arithmetic_flags;
+    update_common_flags32(state, result);
+}
 } // namespace
 
 StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const noexcept {
@@ -169,6 +201,54 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
             state.gpr[reg] = *immediate;
             pc += 4;
         }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
+    // Group-1 32-bit immediate arithmetic: ADD, SUB, XOR, and CMP.
+    // Results written to a 32-bit register zero-extend into the full GPR.
+    if (!rex_w && opcode == 0x81) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
+
+        const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
+        if (operation != 0 && operation != 5 && operation != 6 && operation != 7)
+            return StepResult::UnsupportedInstruction;
+
+        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
+                                        (rex_b ? 8U : 0U);
+        const auto raw_immediate = memory.read_le<std::uint32_t>(pc);
+        if (!raw_immediate) return StepResult::MemoryFault;
+        pc += 4;
+        const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination]);
+        const std::uint32_t rhs = *raw_immediate;
+        std::uint32_t result = 0;
+
+        switch (operation) {
+        case 0:
+            result = lhs + rhs;
+            update_add_flags32(state, lhs, rhs, result);
+            state.gpr[destination] = result;
+            break;
+        case 5:
+            result = lhs - rhs;
+            update_sub_flags32(state, lhs, rhs, result);
+            state.gpr[destination] = result;
+            break;
+        case 6:
+            result = lhs ^ rhs;
+            update_logic_flags32(state, result);
+            state.gpr[destination] = result;
+            break;
+        case 7:
+            result = lhs - rhs;
+            update_sub_flags32(state, lhs, rhs, result);
+            break;
+        default:
+            return StepResult::UnsupportedInstruction;
+        }
+
         state.rip = pc;
         return StepResult::Executed;
     }
@@ -306,14 +386,46 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
-    // Register-only 64-bit ADD, SUB, XOR, and CMP: r/m64, r64.
-    if (rex_w && (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39)) {
+    // Register-only 32-bit and 64-bit ADD, SUB, XOR, and CMP.
+    // In 64-bit mode, default operand size is 32 bits unless REX.W is set.
+    if (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
 
         const std::size_t source = static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+        if (!rex_w) {
+            const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination]);
+            const std::uint32_t rhs = static_cast<std::uint32_t>(state.gpr[source]);
+            std::uint32_t result = 0;
+            switch (opcode) {
+            case 0x01:
+                result = lhs + rhs;
+                update_add_flags32(state, lhs, rhs, result);
+                state.gpr[destination] = result;
+                break;
+            case 0x29:
+                result = lhs - rhs;
+                update_sub_flags32(state, lhs, rhs, result);
+                state.gpr[destination] = result;
+                break;
+            case 0x31:
+                result = lhs ^ rhs;
+                update_logic_flags32(state, result);
+                state.gpr[destination] = result;
+                break;
+            case 0x39:
+                result = lhs - rhs;
+                update_sub_flags32(state, lhs, rhs, result);
+                break;
+            default:
+                return StepResult::UnsupportedInstruction;
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         const std::uint64_t lhs = state.gpr[destination];
         const std::uint64_t rhs = state.gpr[source];
         std::uint64_t result = 0;

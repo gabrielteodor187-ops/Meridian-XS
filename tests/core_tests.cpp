@@ -395,6 +395,68 @@ void test_immediate_arithmetic() {
             "immediate ADD should set signed overflow");
 }
 
+void test_32bit_arithmetic() {
+    using meridian::cpu::StepResult;
+    constexpr std::uint64_t overflow_flag = 1ULL << 11U;
+    constexpr std::uint64_t zero_flag = 1ULL << 6U;
+    constexpr std::uint64_t sign_flag = 1ULL << 7U;
+    meridian::core::GuestMemory memory{0xb000, 0x100};
+    const std::array<std::byte, 38> program{
+        // MOV EAX, 0x7fffffff; ADD EAX, 1 (overflow into sign bit).
+        std::byte{0xb8}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0x7f},
+        std::byte{0x81}, std::byte{0xc0}, std::byte{0x01}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00},
+        // SUB EAX, 0x80000000 -> zero.
+        std::byte{0x81}, std::byte{0xe8}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x80},
+        // MOV ECX, 5; ADD EAX, ECX; SUB EAX, ECX; XOR EAX, ECX; CMP EAX, ECX.
+        std::byte{0xb9}, std::byte{0x05}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x01}, std::byte{0xc8},
+        std::byte{0x29}, std::byte{0xc8},
+        std::byte{0x31}, std::byte{0xc8},
+        std::byte{0x39}, std::byte{0xc8},
+        std::byte{0xf4}
+    };
+    require(memory.write(0xb000, program), "32-bit arithmetic program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xb000;
+    state.gpr[0] = 0xffffffffffffffffULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOV r32, imm32 should execute");
+    require(state.gpr[0] == 0x7fffffffULL,
+            "writing EAX must zero-extend into RAX");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit immediate ADD should execute");
+    require(state.gpr[0] == 0x80000000ULL,
+            "32-bit ADD should wrap at 32 bits and zero-extend");
+    require((state.rflags & overflow_flag) != 0 && (state.rflags & sign_flag) != 0,
+            "32-bit ADD should set OF and SF at bit 31");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit immediate SUB should execute");
+    require(state.gpr[0] == 0 && (state.rflags & zero_flag) != 0,
+            "32-bit SUB should produce zero and set ZF");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOV ECX, imm32 should execute");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit register ADD should execute");
+    require(state.gpr[0] == 5, "32-bit register ADD should update EAX");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit register SUB should execute");
+    require(state.gpr[0] == 0, "32-bit register SUB should update EAX");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit register XOR should execute");
+    require(state.gpr[0] == 5, "32-bit register XOR should update EAX");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit register CMP should execute");
+    require(state.gpr[0] == 5, "32-bit CMP must not modify its destination");
+    require((state.rflags & zero_flag) == 0,
+            "32-bit CMP of unequal operands should clear ZF");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "32-bit arithmetic program should reach HLT");
+}
+
 void test_sib_memory_addressing() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x8000, 0x200};
@@ -471,6 +533,7 @@ int main() {
         test_memory_operand_faults();
         test_rip_relative_memory_addressing();
         test_immediate_arithmetic();
+        test_32bit_arithmetic();
         test_sib_memory_addressing();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;

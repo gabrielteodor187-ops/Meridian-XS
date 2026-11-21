@@ -21,6 +21,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
 - RIP-relative 64-bit MOV loads and stores using signed disp32 offsets, including correct REX.B handling.
+- 32-bit register and immediate ADD, SUB, XOR, and CMP with 32-bit flag behaviour and architectural zero-extension into 64-bit GPRs.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
