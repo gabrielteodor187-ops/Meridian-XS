@@ -4602,6 +4602,25 @@ void test_adc_sbb_register_and_memory_forms() {
             (state.rflags & carry_flag) != 0,
             "16-bit SBB should consume borrow and preserve upper register bits");
 
+    constexpr std::uint64_t overflow_flag = 1ULL << 11U;
+    state.rip = 0x34000;
+    state.gpr[0] = 0x7fff;
+    state.gpr[1] = 0;
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffffU) == 0x8000U &&
+            (state.rflags & overflow_flag) != 0,
+            "16-bit ADC should detect signed overflow from carry-in");
+
+    state.rip = 0x34003;
+    state.gpr[0] = 0x8000;
+    state.gpr[1] = 0x7fff;
+    state.rflags |= carry_flag;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffffU) == 0 &&
+            (state.rflags & overflow_flag) != 0,
+            "16-bit SBB should detect signed overflow from borrow-in");
+
     state.rip = 0x34006;
     state.gpr[0] = 0xffffffffULL;
     state.gpr[1] = 0;
