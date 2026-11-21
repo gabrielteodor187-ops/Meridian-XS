@@ -171,6 +171,56 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
+    // 64-bit MOV between a register and [base + displacement].
+    // SIB and RIP-relative addressing are deliberately left unsupported.
+    if (rex_w && (opcode == 0x8b || opcode == 0x89)) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        const std::size_t reg = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                (rex_r ? 8U : 0U);
+        const std::size_t rm = static_cast<std::size_t>(modrm & 7U) +
+                               (rex_b ? 8U : 0U);
+
+        if (mod == 3) {
+            if (opcode == 0x8b) state.gpr[reg] = state.gpr[rm];
+            else state.gpr[rm] = state.gpr[reg];
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
+        const std::uint8_t rm_low = static_cast<std::uint8_t>(modrm & 7U);
+        if (rm_low == 4 || (mod == 0 && rm_low == 5))
+            return StepResult::UnsupportedInstruction;
+
+        std::int64_t displacement = 0;
+        if (mod == 1) {
+            std::uint8_t raw = 0;
+            if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
+            displacement = std::bit_cast<std::int8_t>(raw);
+        } else if (mod == 2) {
+            const auto raw = memory.read_le<std::uint32_t>(pc);
+            if (!raw) return StepResult::MemoryFault;
+            displacement = std::bit_cast<std::int32_t>(*raw);
+            pc += 4;
+        }
+
+        const std::uint64_t address = state.gpr[rm] +
+                                      static_cast<std::uint64_t>(displacement);
+        if (opcode == 0x8b) {
+            const auto value = memory.read_le<std::uint64_t>(address);
+            if (!value) return StepResult::MemoryFault;
+            state.gpr[reg] = *value;
+        } else {
+            if (!memory.write_le<std::uint64_t>(address, state.gpr[reg]))
+                return StepResult::MemoryFault;
+        }
+
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // Register-only 64-bit ADD, SUB, XOR, and CMP: r/m64, r64.
     if (rex_w && (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39)) {
         std::uint8_t modrm = 0;

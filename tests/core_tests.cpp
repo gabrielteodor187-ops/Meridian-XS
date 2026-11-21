@@ -227,6 +227,73 @@ void test_stack_memory_fault_is_atomic() {
             "failed PUSH must leave RIP and RSP unchanged");
 }
 
+void test_memory_operand_mov() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x8000, 0x200};
+    const std::array<std::byte, 31> program{
+        // MOV [RDI+8], RAX; MOV RBX, [RDI+8]
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x47}, std::byte{0x08},
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x5f}, std::byte{0x08},
+        // MOV [R8+16], RAX; MOV RBX, [R8+16]
+        std::byte{0x49}, std::byte{0x89}, std::byte{0x40}, std::byte{0x10},
+        std::byte{0x49}, std::byte{0x8b}, std::byte{0x58}, std::byte{0x10},
+        // MOV [RDI+0x80], RAX; MOV RBX, [RDI+0x80] (disp32)
+        std::byte{0x48}, std::byte{0x89}, std::byte{0x87}, std::byte{0x80},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x9f}, std::byte{0x80},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x8000, program), "memory-operand program should load");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x8000;
+    state.gpr[0] = 0x1122334455667788ULL;
+    state.gpr[7] = 0x8040;
+    state.gpr[8] = 0x8080;
+    const meridian::cpu::Interpreter interpreter{};
+
+    for (int i = 0; i < 6; ++i) {
+        require(interpreter.step(state, memory) == StepResult::Executed,
+                "register-indirect MOV should execute");
+    }
+    require(memory.read_le<std::uint64_t>(0x8048).value_or(0) == state.gpr[0],
+            "MOV store should write through RDI plus disp8");
+    require(memory.read_le<std::uint64_t>(0x8090).value_or(0) == state.gpr[0],
+            "REX.B should select R8 as a memory base");
+    require(memory.read_le<std::uint64_t>(0x80c0).value_or(0) == state.gpr[0],
+            "MOV store should support a disp32 address");
+    require(state.gpr[3] == state.gpr[0], "MOV loads should copy guest memory into RBX");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "memory-operand program should reach HLT");
+}
+
+void test_memory_operand_faults() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x9000, 0x100};
+    const std::array<std::byte, 4> load{
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x5f}, std::byte{0x08}
+    };
+    require(memory.write(0x9000, load), "faulting load instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x9000;
+    state.gpr[7] = 0x90f8;
+    state.gpr[3] = 0xdeadbeef;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::MemoryFault,
+            "out-of-range guest load should report a memory fault");
+    require(state.rip == 0x9000 && state.gpr[3] == 0xdeadbeef,
+            "failed guest load must not change RIP or its destination register");
+
+    const std::array<std::byte, 4> sib_load{
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x1c}, std::byte{0x24}
+    };
+    require(memory.write(0x9020, sib_load), "SIB test instruction should load");
+    state.rip = 0x9020;
+    require(interpreter.step(state, memory) == StepResult::UnsupportedInstruction,
+            "SIB addressing should be reported as unsupported rather than misdecoded");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -250,6 +317,8 @@ int main() {
         test_branch_instructions();
         test_stack_and_call_instructions();
         test_stack_memory_fault_is_atomic();
+        test_memory_operand_mov();
+        test_memory_operand_faults();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
