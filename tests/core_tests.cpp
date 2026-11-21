@@ -171,7 +171,7 @@ void test_branch_instructions() {
 void test_stack_and_call_instructions() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x6000, 0x100};
-    const std::array<std::byte, 43> program{
+    const std::array<std::byte, 44> program{
         // MOV RAX, 0x123456789abcdef0
         std::byte{0x48}, std::byte{0xb8},
         std::byte{0xf0}, std::byte{0xde}, std::byte{0xbc}, std::byte{0x9a},
@@ -182,7 +182,7 @@ void test_stack_and_call_instructions() {
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0x5b},
-        // CALL function at 0x6020; return address is 0x601b.
+        // CALL function at 0x6021; return address is 0x601b.
         std::byte{0xe8}, std::byte{0x06}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xf4},
         std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90},
@@ -210,7 +210,7 @@ void test_stack_and_call_instructions() {
     require(state.gpr[3] == 0x123456789abcdef0ULL, "POP RBX should restore the pushed RAX value");
     require(state.gpr[1] == 7, "called function should update RCX");
     require(state.gpr[4] == 0x6100, "PUSH/POP and CALL/RET should restore RSP");
-    require(state.rip == 0x601b, "RET should return to the instruction after CALL before HLT");
+    require(state.rip == 0x601c, "HLT should advance RIP past the return site");
 }
 
 void test_stack_memory_fault_is_atomic() {
