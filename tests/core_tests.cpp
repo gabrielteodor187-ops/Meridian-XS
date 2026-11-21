@@ -300,7 +300,7 @@ void test_memory_operand_faults() {
 void test_rip_relative_memory_addressing() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x9000, 0x200};
-    const std::array<std::byte, 22> program{
+    const std::array<std::byte, 26> program{
         // MOV RBX, [RIP+0x39] -> 0x9040.
         std::byte{0x48}, std::byte{0x8b}, std::byte{0x1d},
         std::byte{0x39}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
@@ -689,6 +689,7 @@ void test_16bit_memory_arithmetic() {
         std::byte{0x66}, std::byte{0x21}, std::byte{0x57}, std::byte{0x02},
         std::byte{0x66}, std::byte{0x29}, std::byte{0x57}, std::byte{0x02},
         std::byte{0x66}, std::byte{0x31}, std::byte{0x4f}, std::byte{0x04},
+        std::byte{0x66}, std::byte{0x39}, std::byte{0x57}, std::byte{0x02},
         std::byte{0xf4}, std::byte{0x90}
     };
     require(memory.write(0x12000, program), "16-bit memory arithmetic program should load");
@@ -719,6 +720,11 @@ void test_16bit_memory_arithmetic() {
     require(interpreter.step(state, memory) == StepResult::Executed &&
             memory.read_le<std::uint16_t>(0x12084).value_or(0) == 0x00fcU,
             "16-bit memory XOR should store its result");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint16_t>(0x12082).value_or(0) == 0xfffcU,
+            "16-bit memory CMP should leave its word operand unchanged");
+    require((state.rflags & (1ULL << 7U)) != 0,
+            "16-bit memory CMP should set SF for a negative word result");
     require(interpreter.step(state, memory) == StepResult::Halted,
             "16-bit memory arithmetic program should reach HLT");
 }
