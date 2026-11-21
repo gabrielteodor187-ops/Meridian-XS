@@ -248,7 +248,7 @@ struct VexPrefix {
 template <typename Memory>
 StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                        std::uint8_t opcode, const VexPrefix& vex) noexcept {
-    if (vex.map != 1 || vex.w || vex.pp > 2)
+    if ((vex.map != 1 && vex.map != 2) || vex.w || vex.pp > 2)
         return StepResult::UnsupportedInstruction;
     if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
         (state.control_registers[4] & ((1ULL << 9U) | (1ULL << 18U))) !=
@@ -257,6 +257,59 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
         return StepResult::UnsupportedInstruction;
 
     const std::size_t width = vex.l ? 32U : 16U;
+    if (vex.map == 2) { // VEX.0F38 map
+        if (opcode != 0x00 || vex.pp != 1 || vex.vvvv > 15U)
+            return StepResult::UnsupportedInstruction; // VPSHUFB only.
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::size_t destination =
+            static_cast<std::size_t>((modrm >> 3U) & 7U) + (vex.r ? 8U : 0U);
+        const std::size_t rm_index =
+            static_cast<std::size_t>(modrm & 7U) + (vex.b ? 8U : 0U);
+        const bool register_operand = (modrm >> 6U) == 3U;
+        std::array<std::byte, 32> controls{};
+        if (register_operand) {
+            std::copy(state.xmm[rm_index].begin(), state.xmm[rm_index].end(),
+                      controls.begin());
+            if (vex.l)
+                std::copy(state.ymm_high[rm_index].begin(),
+                          state.ymm_high[rm_index].end(), controls.begin() + 16);
+        } else {
+            std::uint64_t address = 0;
+            if (!decode_effective_address(state, memory, pc, modrm,
+                                          vex.b, vex.x, 0, address))
+                return StepResult::MemoryFault;
+            if (!memory.read(address,
+                    std::span<std::byte>{controls}.first(width)))
+                return StepResult::MemoryFault;
+        }
+        std::array<std::byte, 32> source{};
+        std::copy(state.xmm[vex.vvvv].begin(), state.xmm[vex.vvvv].end(),
+                  source.begin());
+        if (vex.l)
+            std::copy(state.ymm_high[vex.vvvv].begin(),
+                      state.ymm_high[vex.vvvv].end(), source.begin() + 16);
+        std::array<std::byte, 32> result{};
+        for (std::size_t lane = 0; lane < width; lane += 16U) {
+            for (std::size_t i = 0; i < 16; ++i) {
+                const auto control =
+                    std::to_integer<unsigned char>(controls[lane + i]);
+                if ((control & 0x80U) != 0) {
+                    result[lane + i] = std::byte{0};
+                } else {
+                    result[lane + i] = source[lane + (control & 0x0fU)];
+                }
+            }
+        }
+        std::copy_n(result.begin(), 16, state.xmm[destination].begin());
+        if (vex.l)
+            std::copy_n(result.begin() + 16, 16, state.ymm_high[destination].begin());
+        else
+            state.ymm_high[destination].fill(std::byte{0});
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+    if (vex.map != 1) return StepResult::UnsupportedInstruction;
     if (opcode == 0x77) { // VZEROUPPER / VZEROALL
         if (vex.pp != 0 || vex.vvvv != 0x0fU) return StepResult::UnsupportedInstruction;
         if (vex.l) {

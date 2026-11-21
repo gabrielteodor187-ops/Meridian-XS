@@ -3815,6 +3815,39 @@ void test_avx2_vpshufd_vshufps() {
             "VSHUFPS should independently shuffle both upper source halves");
 }
 
+
+void test_avx2_vpshufb_128bit_lane_behavior() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32500, 0x100};
+    const std::array<std::byte, 5> vpshufb{
+        std::byte{0xc4}, std::byte{0xe2}, std::byte{0x75},
+        std::byte{0x00}, std::byte{0xc2}
+    };
+    require(memory.write(0x32500, vpshufb), "VPSHUFB instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32500;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    for (std::size_t i = 0; i < 16; ++i) {
+        state.xmm[1][i] = static_cast<std::byte>(i);
+        state.xmm[2][i] = static_cast<std::byte>(15U - i);
+        state.ymm_high[1][i] = static_cast<std::byte>(16U + i);
+        state.ymm_high[2][i] = static_cast<std::byte>(15U - i);
+    }
+    state.xmm[2][0] = std::byte{0x80}; // High bit forces a zero result.
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPSHUFB.256 should execute");
+    require(state.xmm[0][0] == std::byte{0},
+            "VPSHUFB should zero a byte when control bit 7 is set");
+    for (std::size_t i = 1; i < 16; ++i)
+        require(state.xmm[0][i] == static_cast<std::byte>(15U - i),
+                "VPSHUFB should select bytes within the lower 128-bit lane");
+    for (std::size_t i = 0; i < 16; ++i)
+        require(state.ymm_high[0][i] == static_cast<std::byte>(31U - i),
+                "VPSHUFB should shuffle the upper 128-bit lane independently");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3897,6 +3930,7 @@ int main() {
         test_avx2_packed_integer_operations_subset();
         test_avx2_vmovdqa_vmovdqu_memory_forms();
         test_avx2_vpshufd_vshufps();
+        test_avx2_vpshufb_128bit_lane_behavior();
 
         test_cpu_state_reset();
         test_interpreter();
