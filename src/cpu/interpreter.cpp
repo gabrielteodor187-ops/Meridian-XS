@@ -154,6 +154,49 @@ void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
     update_common_flags32(state, result);
 }
 
+
+bool read_msr(const CpuState& state, std::uint32_t index,
+              std::uint64_t& value) noexcept {
+    switch (index) {
+    case 0x00000010U: value = state.tsc; return true;
+    case 0x0000001bU: value = state.apic_base; return true;
+    case 0x00000174U: value = state.sysenter_cs; return true;
+    case 0x00000175U: value = state.sysenter_esp; return true;
+    case 0x00000176U: value = state.sysenter_eip; return true;
+    case 0xc0000080U: value = state.efer; return true;
+    case 0xc0000081U: value = state.star; return true;
+    case 0xc0000082U: value = state.lstar; return true;
+    case 0xc0000083U: value = state.cstar; return true;
+    case 0xc0000084U: value = state.sfmask; return true;
+    case 0xc0000100U: value = state.fs_base; return true;
+    case 0xc0000101U: value = state.gs_base; return true;
+    case 0xc0000102U: value = state.kernel_gs_base; return true;
+    case 0xc0000103U: value = state.tsc_aux; return true;
+    default: return false;
+    }
+}
+
+bool write_msr(CpuState& state, std::uint32_t index,
+               std::uint64_t value) noexcept {
+    switch (index) {
+    case 0x00000010U: state.tsc = value; return true;
+    case 0x0000001bU: state.apic_base = value; return true;
+    case 0x00000174U: state.sysenter_cs = value; return true;
+    case 0x00000175U: state.sysenter_esp = value; return true;
+    case 0x00000176U: state.sysenter_eip = value; return true;
+    case 0xc0000080U: state.efer = value; return true;
+    case 0xc0000081U: state.star = value; return true;
+    case 0xc0000082U: state.lstar = value; return true;
+    case 0xc0000083U: state.cstar = value; return true;
+    case 0xc0000084U: state.sfmask = value; return true;
+    case 0xc0000100U: state.fs_base = value; return true;
+    case 0xc0000101U: state.gs_base = value; return true;
+    case 0xc0000102U: state.kernel_gs_base = value; return true;
+    case 0xc0000103U: state.tsc_aux = value; return true;
+    default: return false;
+    }
+}
+
 bool condition_true(std::uint8_t condition, std::uint64_t flags) noexcept {
     const bool carry = (flags & flag_cf) != 0;
     const bool parity = (flags & flag_pf) != 0;
@@ -248,6 +291,27 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        // RDMSR / WRMSR. Only the explicitly modeled MSR set is implemented.
+        if (second == 0x30 || second == 0x32) {
+            if (state.cpl != 0) return StepResult::PrivilegeFault;
+            const std::uint32_t index = static_cast<std::uint32_t>(state.gpr[1]);
+            if (second == 0x32) {
+                std::uint64_t value = 0;
+                if (!read_msr(state, index, value))
+                    return StepResult::GeneralProtectionFault;
+                state.gpr[0] = static_cast<std::uint32_t>(value);
+                state.gpr[2] = static_cast<std::uint32_t>(value >> 32U);
+            } else {
+                const std::uint64_t value =
+                    (static_cast<std::uint64_t>(static_cast<std::uint32_t>(state.gpr[2])) << 32U) |
+                    static_cast<std::uint32_t>(state.gpr[0]);
+                if (!write_msr(state, index, value))
+                    return StepResult::GeneralProtectionFault;
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // INVLPG m: invalidate the translation for the supplied linear address.
         if (second == 0x01) {
             std::uint8_t modrm = 0;

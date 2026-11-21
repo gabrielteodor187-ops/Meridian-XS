@@ -33,7 +33,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
-- Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms and INVLPG for the paged-memory backend.
+- Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms, INVLPG, and a limited RDMSR/WRMSR bank for common EFER, syscall, segment-base, APIC, TSC, and SYSENTER MSRs.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -49,7 +49,7 @@ ctest --test-dir build --output-on-failure
 
 ## Not implemented
 
-This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, complete CPU privilege/control-register model, page-fault delivery, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
+This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, complete CPU privilege/control-register/MSR model, page-fault delivery, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
 
 ## Development direction
 
@@ -214,3 +214,8 @@ Extended CpuState with CR0–CR8 storage, EFER, and CPL. Added privileged MOV be
 ### v0.44.1 — MOV-from-CR3 test encoding correction
 
 Corrected the ModRM register encoding in the MOV RBX, CR3 test case. The interpreter implementation was unchanged; the original test byte sequence selected RCX as the destination.
+
+
+### v0.45.0 — Modeled MSR access
+
+Added a limited modeled MSR bank and privileged RDMSR/WRMSR execution. Supported indices include TSC, APIC_BASE, SYSENTER_CS/ESP/EIP, EFER, STAR/LSTAR/CSTAR/SFMASK, FS_BASE/GS_BASE/KERNEL_GS_BASE, and TSC_AUX. RDMSR splits values into EDX:EAX; WRMSR combines the low 32-bit halves. CPL violations return PrivilegeFault and unmodeled MSRs return GeneralProtectionFault. EFER writes automatically update the paging backend context after the instruction. This is not a complete AMD/Intel MSR implementation.

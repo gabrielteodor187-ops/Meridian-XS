@@ -1979,6 +1979,61 @@ void test_control_register_moves_and_invlpg() {
             "MOV from CR3 must fault outside ring zero");
 }
 
+
+void test_rdmsr_wrmsr_and_privilege() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x25000, 64};
+    const std::array<std::byte, 20> program{
+        // MOV ECX, IA32_EFER; MOV EAX, NXE; MOV EDX, 0; WRMSR; RDMSR; HLT.
+        std::byte{0xb9}, std::byte{0x80}, std::byte{0x00}, std::byte{0x00}, std::byte{0xc0},
+        std::byte{0xb8}, std::byte{0x00}, std::byte{0x08}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0xba}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x0f}, std::byte{0x30},
+        std::byte{0x0f}, std::byte{0x32},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x25000, program), "RDMSR/WRMSR program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x25000;
+    const meridian::cpu::Interpreter interpreter{};
+
+    for (int i = 0; i < 5; ++i) {
+        require(interpreter.step(state, memory) == StepResult::Executed,
+                "modeled WRMSR sequence should execute");
+    }
+    require(state.efer == (1ULL << 11U),
+            "WRMSR should update the modeled EFER value");
+    require(state.gpr[0] == (1ULL << 11U) && state.gpr[2] == 0,
+            "RDMSR should split the 64-bit MSR value across EDX:EAX");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "RDMSR/WRMSR program should reach HLT");
+
+    meridian::core::GuestMemory invalid_memory{0x25100, 16};
+    const std::array<std::byte, 7> invalid_msr{
+        // MOV ECX, 0xffffffff; RDMSR.
+        std::byte{0xb9}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0xff}, std::byte{0x0f}, std::byte{0x32}
+    };
+    require(invalid_memory.write(0x25100, invalid_msr),
+            "unsupported MSR test program should load");
+    meridian::cpu::CpuState invalid_state{};
+    invalid_state.rip = 0x25100;
+    require(interpreter.step(invalid_state, invalid_memory) == StepResult::Executed,
+            "unsupported MSR index setup should execute");
+    require(interpreter.step(invalid_state, invalid_memory) ==
+                StepResult::GeneralProtectionFault,
+            "unmodeled MSR accesses should raise a general-protection fault");
+
+    const std::array<std::byte, 2> privileged{std::byte{0x0f}, std::byte{0x32}};
+    require(invalid_memory.write(0x25108, privileged),
+            "unprivileged RDMSR program should load");
+    meridian::cpu::CpuState user_state{};
+    user_state.rip = 0x25108;
+    user_state.cpl = 3;
+    require(interpreter.step(user_state, invalid_memory) == StepResult::PrivilegeFault,
+            "RDMSR should be rejected outside ring zero");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1990,6 +2045,8 @@ void test_cpu_state_reset() {
     require(state.rflags == 0x2, "RFLAGS reserved bit 1 should be set");
     require(state.control_registers[3] == 0 && state.efer == 0 && state.cpl == 0,
             "control registers, EFER, and CPL should reset");
+    require(state.star == 0 && state.lstar == 0 && state.fs_base == 0 && state.tsc == 0,
+            "modeled MSR state should reset");
     require(state.xmm[3][2] == std::byte{0}, "vector registers should reset");
 }
 } // namespace
@@ -2025,6 +2082,7 @@ int main() {
         test_x64_page_table_walker();
         test_interpreter_through_x64_page_tables();
         test_control_register_moves_and_invlpg();
+        test_rdmsr_wrmsr_and_privilege();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

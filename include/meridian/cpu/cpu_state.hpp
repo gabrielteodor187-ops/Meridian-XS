@@ -16,6 +16,19 @@ struct CpuState {
     // CR0-CR8 are stored by architectural register number; reserved slots remain zero.
     std::array<std::uint64_t, 9> control_registers{};
     std::uint64_t efer{0};
+    std::uint64_t star{0};
+    std::uint64_t lstar{0};
+    std::uint64_t cstar{0};
+    std::uint64_t sfmask{0};
+    std::uint64_t fs_base{0};
+    std::uint64_t gs_base{0};
+    std::uint64_t kernel_gs_base{0};
+    std::uint64_t apic_base{0};
+    std::uint64_t tsc_aux{0};
+    std::uint64_t tsc{0};
+    std::uint64_t sysenter_cs{0};
+    std::uint64_t sysenter_esp{0};
+    std::uint64_t sysenter_eip{0};
     std::uint8_t cpl{0};
     std::array<std::array<std::byte, 16>, 16> xmm{};
 
