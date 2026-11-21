@@ -2350,7 +2350,8 @@ void test_pe32_plus_image_loader() {
 
 void test_xvd_xvc_header_metadata_reader() {
     using meridian::core::XvdContainerReader;
-    std::vector<std::byte> file(XvdContainerReader::header_size);
+    // Include enough backing bytes for the declared XVC metadata region.
+    std::vector<std::byte> file(0xc000);
     const auto put32 = [&](std::size_t offset, std::uint32_t value) {
         for (std::size_t i = 0; i < 4; ++i)
             file[offset + i] = static_cast<std::byte>((value >> (i * 8U)) & 0xffU);

@@ -277,3 +277,8 @@ Added a read-only parser for the public XVD header fields used by Xbox One-famil
 ### v0.53.0 — XVC descriptor and region metadata
 
 Extended the read-only XVD/XVC inspector to derive the XVC metadata offset from the declared embedded-volume, mutable-data, integrity-tree, and user-data page counts. It reads the descriptor version, initial-play region metadata, and region headers (IDs, flags, descriptions, offsets, and lengths), with strict bounds and count checks. Encryption key material is not read, and no region is decrypted or extracted. Layout research references the public xvdtool format notes; this implementation is independently written and limited to metadata inspection.
+
+
+### v0.53.1 — XVD header fixture sizing
+
+Expanded the header-only synthetic XVC fixture to include the metadata bytes declared by its header. The parser correctly rejected the earlier fixture because its declared XVC descriptor lay beyond the supplied file buffer; no parser behavior changed.
