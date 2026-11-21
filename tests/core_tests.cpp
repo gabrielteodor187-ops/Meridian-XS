@@ -4428,6 +4428,52 @@ void test_cmovcc_and_setcc() {
             "SETNZ should store zero when ZF is set");
 }
 
+void test_16bit_register_arithmetic() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33600, 0x100};
+    const std::array<std::byte, 3> add_ax_cx{
+        std::byte{0x66}, std::byte{0x01}, std::byte{0xc8}
+    };
+    const std::array<std::byte, 3> cmp_ax_cx{
+        std::byte{0x66}, std::byte{0x39}, std::byte{0xc8}
+    };
+    const std::array<std::byte, 3> xor_ax_cx{
+        std::byte{0x66}, std::byte{0x31}, std::byte{0xc8}
+    };
+    require(memory.write(0x33600, add_ax_cx), "16-bit ADD instruction should load");
+    require(memory.write(0x33610, cmp_ax_cx), "16-bit CMP instruction should load");
+    require(memory.write(0x33620, xor_ax_cx), "16-bit XOR instruction should load");
+    const meridian::cpu::Interpreter interpreter{};
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x33600;
+    state.gpr[0] = 0x112233445566ffffULL;
+    state.gpr[1] = 2;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "16-bit ADD should execute");
+    require(state.gpr[0] == 0x1122334455660001ULL,
+            "16-bit ADD should wrap AX and preserve upper register bits");
+    require((state.rflags & 1ULL) != 0,
+            "16-bit ADD overflow past 0xffff should set carry");
+
+    state.rip = 0x33610;
+    state.gpr[0] = 0x8877665544330005ULL;
+    state.gpr[1] = 3;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "16-bit CMP should execute");
+    require(state.gpr[0] == 0x8877665544330005ULL,
+            "16-bit CMP must not modify its destination");
+    require((state.rflags & (1ULL << 6U)) != 0,
+            "16-bit CMP of equal low words should set zero flag");
+
+    state.rip = 0x33620;
+    state.gpr[0] = 0xaabbccddeeff00ffULL;
+    state.gpr[1] = 0x00f0;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0xaabbccddeeff000fULL,
+            "16-bit XOR should update only the low word");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4521,6 +4567,7 @@ int main() {
         test_imul_register_and_immediate_forms();
         test_shl_shr_sar_group2();
         test_cmovcc_and_setcc();
+        test_16bit_register_arithmetic();
 
         test_cpu_state_reset();
         test_interpreter();
