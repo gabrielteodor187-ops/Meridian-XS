@@ -4137,6 +4137,58 @@ void test_indirect_call_jump_and_push_group() {
             "PUSH RAX should preserve the full 64-bit value");
 }
 
+
+void test_lea_and_movsxd_addressing() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33100, 0x200};
+    const std::array<std::byte, 6> lea_sib{
+        std::byte{0x48}, std::byte{0x8d}, std::byte{0x44},
+        std::byte{0x8b}, std::byte{0x10}, std::byte{0xf4}
+    };
+    const std::array<std::byte, 4> movsxd_register{
+        std::byte{0x48}, std::byte{0x63}, std::byte{0xd1}, std::byte{0xf4}
+    };
+    const std::array<std::byte, 5> movsxd_memory{
+        std::byte{0x4c}, std::byte{0x63}, std::byte{0x43},
+        std::byte{0x04}, std::byte{0xf4}
+    };
+    require(memory.write(0x33100, lea_sib), "LEA SIB instruction should load");
+    require(memory.write(0x33120, movsxd_register),
+            "MOVSXD register instruction should load");
+    require(memory.write(0x33140, movsxd_memory),
+            "MOVSXD memory instruction should load");
+    require(memory.write_le<std::uint32_t>(0x33184, 0xfffffffeU),
+            "MOVSXD memory source should load");
+    const meridian::cpu::Interpreter interpreter{};
+
+    meridian::cpu::CpuState lea_state{};
+    lea_state.rip = 0x33100;
+    lea_state.gpr[3] = 0x1000; // RBX base.
+    lea_state.gpr[1] = 3;      // RCX index.
+    require(interpreter.step(lea_state, memory) == StepResult::Executed,
+            "LEA with SIB addressing should execute");
+    require(lea_state.gpr[0] == 0x101c,
+            "LEA should compute base + scaled index + displacement");
+    require(interpreter.step(lea_state, memory) == StepResult::Halted,
+            "LEA program should reach HLT");
+
+    meridian::cpu::CpuState register_state{};
+    register_state.rip = 0x33120;
+    register_state.gpr[1] = 0x80000001ULL;
+    require(interpreter.step(register_state, memory) == StepResult::Executed,
+            "MOVSXD register form should execute");
+    require(register_state.gpr[2] == 0xffffffff80000001ULL,
+            "MOVSXD should sign-extend the source dword into a qword");
+
+    meridian::cpu::CpuState memory_state{};
+    memory_state.rip = 0x33140;
+    memory_state.gpr[3] = 0x33180;
+    require(interpreter.step(memory_state, memory) == StepResult::Executed,
+            "MOVSXD memory form should execute");
+    require(memory_state.gpr[8] == 0xfffffffffffffffeULL,
+            "MOVSXD should sign-extend a memory dword into an extended GPR");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4225,6 +4277,7 @@ int main() {
         test_avx2_packed_byte_word_arithmetic();
         test_avx2_saturating_and_minmax_operations();
         test_indirect_call_jump_and_push_group();
+        test_lea_and_movsxd_addressing();
 
         test_cpu_state_reset();
         test_interpreter();

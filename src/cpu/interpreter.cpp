@@ -882,6 +882,52 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    // LEA computes an effective address without reading guest memory.
+    if (opcode == 0x8d) {
+        if (operand_size_override) return StepResult::UnsupportedInstruction;
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if ((modrm >> 6U) == 3U) return StepResult::UnsupportedInstruction;
+        const std::size_t destination =
+            static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+        std::uint64_t address = 0;
+        if (!decode_effective_address(state, memory, pc, modrm,
+                                      rex_b, rex_x, 0, address))
+            return StepResult::MemoryFault;
+        state.gpr[destination] = rex_w
+            ? address : static_cast<std::uint32_t>(address);
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
+    // MOVSXD r64, r/m32.
+    if (opcode == 0x63) {
+        if (!rex_w || operand_size_override)
+            return StepResult::UnsupportedInstruction;
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::size_t destination =
+            static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+        std::uint32_t source = 0;
+        if ((modrm >> 6U) == 3U) {
+            const std::size_t source_register =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            source = static_cast<std::uint32_t>(state.gpr[source_register]);
+        } else {
+            std::uint64_t address = 0;
+            if (!decode_effective_address(state, memory, pc, modrm,
+                                          rex_b, rex_x, 0, address))
+                return StepResult::MemoryFault;
+            const auto value = memory.template read_le<std::uint32_t>(address);
+            if (!value) return StepResult::MemoryFault;
+            source = *value;
+        }
+        state.gpr[destination] = static_cast<std::uint64_t>(
+            std::bit_cast<std::int64_t>(std::bit_cast<std::int32_t>(source)));
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // Near relative JZ/JNZ (0F 84 / 0F 85), with a signed 32-bit offset.
     if (opcode == 0x0f) {
         std::uint8_t second = 0;

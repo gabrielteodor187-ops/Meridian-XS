@@ -18,7 +18,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
 - Near relative CALL and RET with checked guest-stack access; indirect register/memory CALL and JMP plus FF-group PUSH r/m64.
-- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement.
+- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation and MOVSXD r64,r/m32.
 - REX.R/REX.B extension for memory MOV register and base selection.
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
@@ -474,3 +474,8 @@ Corrected the signed saturating byte/word add selector so VPADDSB and VPADDSW ad
 ### v0.78.0 — Indirect control transfer and FF-group push
 
 Added FF /2 indirect near CALL, FF /4 indirect near JMP, and FF /6 PUSH r/m64 for register and memory operands. CALL pushes the decoded next RIP; indirect branch targets are checked for canonicality. Tests cover register/memory calls, indirect jump, stack contents, and return-address placement. Other FF-group operations remain unsupported.
+
+
+### v0.79.0 — LEA and MOVSXD
+
+Added LEA with supported SIB/base/displacement/RIP-relative effective-address calculation without reading guest memory, and 64-bit MOVSXD register/memory forms with correct sign extension from a 32-bit source. Tests cover scaled-index LEA, register MOVSXD, and extended-register memory MOVSXD.
