@@ -4897,6 +4897,120 @@ void test_group1_byte_immediates() {
             "byte SBB immediate should update memory and propagate borrow");
 }
 
+void test_byte_register_memory_alu_forms() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33b00, 0x200};
+    const std::array<std::byte, 20> program{
+        std::byte{0x00}, std::byte{0xc8}, // add al, cl
+        std::byte{0x02}, std::byte{0xc8}, // add cl, al
+        std::byte{0x10}, std::byte{0xc8}, // adc al, cl
+        std::byte{0x18}, std::byte{0xc8}, // sbb al, cl
+        std::byte{0x08}, std::byte{0xc8}, // or al, cl
+        std::byte{0x20}, std::byte{0xc8}, // and al, cl
+        std::byte{0x28}, std::byte{0xc8}, // sub al, cl
+        std::byte{0x30}, std::byte{0xc8}, // xor al, cl
+        std::byte{0x38}, std::byte{0xc8}  // cmp al, cl
+    };
+    const std::array<std::byte, 8> memory_program{
+        std::byte{0x00}, std::byte{0x0f}, // add byte [rdi], cl
+        std::byte{0x02}, std::byte{0x0f}, // add cl, byte [rdi]
+        std::byte{0x38}, std::byte{0x0f}, // cmp byte [rdi], cl
+        std::byte{0x00}, std::byte{0xe0}  // add al, ah (legacy high byte)
+    };
+    const std::array<std::byte, 3> rex_program{
+        std::byte{0x40}, std::byte{0x00}, std::byte{0xe0} // add al, spl
+    };
+    require(memory.write(0x33b00, program), "byte ALU register program should load");
+    require(memory.write(0x33b40, memory_program), "byte ALU memory program should load");
+    require(memory.write(0x33b60, rex_program), "REX byte ALU program should load");
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState state{};
+
+    state.rip = 0x33b00;
+    state.gpr[0] = 0x1122334455667701ULL;
+    state.gpr[1] = 0x8877665544332202ULL;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 3U &&
+            (state.gpr[0] & ~0xffULL) == 0x1122334455667700ULL,
+            "ADD r/m8,r8 should update only the low byte");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[1] & 0xffU) == 5U,
+            "ADD r8,r/m8 should support the reverse register direction");
+
+    state.rip = 0x33b04;
+    state.gpr[0] = 0xfe;
+    state.gpr[1] = 1;
+    state.rflags |= 1ULL;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 0U && (state.rflags & 1ULL) != 0,
+            "ADC byte register form should consume carry-in");
+    state.rip = 0x33b06;
+    state.gpr[0] = 0;
+    state.gpr[1] = 0;
+    state.rflags |= 1ULL;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 0xffU && (state.rflags & 1ULL) != 0,
+            "SBB byte register form should consume borrow-in");
+
+    state.rip = 0x33b08;
+    state.gpr[0] = 0x0f;
+    state.gpr[1] = 0xf0;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 0xffU,
+            "OR byte register form should update its destination");
+    state.rip = 0x33b0a;
+    state.gpr[0] = 0xff;
+    state.gpr[1] = 0x0f;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 0x0fU,
+            "AND byte register form should update its destination");
+    state.rip = 0x33b0c;
+    state.gpr[0] = 5;
+    state.gpr[1] = 2;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 3U,
+            "SUB byte register form should update its destination");
+    state.rip = 0x33b0e;
+    state.gpr[0] = 0xaa;
+    state.gpr[1] = 0xff;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 0x55U,
+            "XOR byte register form should update its destination");
+    state.rip = 0x33b10;
+    state.gpr[0] = 7;
+    state.gpr[1] = 7;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 7U && (state.rflags & (1ULL << 6U)) != 0,
+            "CMP byte register form should update flags without writing");
+
+    state.rip = 0x33b40;
+    state.gpr[7] = 0x33b80;
+    state.gpr[1] = 2;
+    require(memory.write_le<std::uint8_t>(0x33b80, 3), "byte memory ALU target should initialize");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33b80).value_or(0) == 5U,
+            "ADD r/m8,r8 should support memory destinations");
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[1] & 0xffU) == 7U,
+            "ADD r8,r/m8 should support memory sources");
+    const auto before_cmp = memory.read_le<std::uint8_t>(0x33b80).value_or(0);
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            memory.read_le<std::uint8_t>(0x33b80).value_or(0) == before_cmp,
+            "CMP byte memory form should leave memory unchanged");
+
+    state.rip = 0x33b46;
+    state.gpr[0] = 0x1201;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 0x1203,
+            "legacy byte ALU encoding should select AH without REX");
+    state.rip = 0x33b60;
+    state.gpr[0] = 1;
+    state.gpr[4] = 2;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            (state.gpr[0] & 0xffU) == 3U,
+            "REX byte ALU encoding should select SPL instead of AH");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4995,6 +5109,7 @@ int main() {
         test_16bit_group1_immediates();
         test_group1_adc_sbb_immediates();
         test_group1_byte_immediates();
+        test_byte_register_memory_alu_forms();
 
         test_cpu_state_reset();
         test_interpreter();
