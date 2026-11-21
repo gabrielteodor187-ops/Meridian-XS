@@ -422,6 +422,29 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+
+    // MOV r/m32, imm32 and MOV r/m64, sign-extended imm32 (register forms).
+    if (opcode == 0xc7) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if (((modrm >> 3U) & 7U) != 0 || (modrm & 0xc0U) != 0xc0U)
+            return StepResult::UnsupportedInstruction;
+        const std::size_t destination =
+            static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+        const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
+        if (!raw_immediate) return StepResult::MemoryFault;
+        pc += 4;
+        if (rex_w) {
+            const auto immediate = std::bit_cast<std::int32_t>(*raw_immediate);
+            state.gpr[destination] = static_cast<std::uint64_t>(
+                static_cast<std::int64_t>(immediate));
+        } else {
+            state.gpr[destination] = *raw_immediate;
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // 32-bit and 64-bit MOV between registers and supported memory operands.
     // Supports base/displacement, SIB, and RIP-relative forms.
     if (opcode == 0x8b || opcode == 0x89) {

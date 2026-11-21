@@ -1070,6 +1070,38 @@ void test_movsx_registers() {
             "MOVSX test program should reach HLT");
 }
 
+
+void test_mov_immediate_group_c7() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x16000, 24};
+    const std::array<std::byte, 14> program{
+        // MOV RAX, -1 (sign-extended imm32); MOV R9D, 0x12345678; HLT.
+        std::byte{0x48}, std::byte{0xc7}, std::byte{0xc0},
+        std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff},
+        std::byte{0x41}, std::byte{0xc7}, std::byte{0xc1},
+        std::byte{0x78}, std::byte{0x56}, std::byte{0x34}, std::byte{0x12}
+    };
+    require(memory.write(0x16000, program), "C7 MOV program should load");
+    const std::array<std::byte, 1> halt{std::byte{0xf4}};
+    require(memory.write(0x1600e, halt), "C7 MOV program HLT should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x16000;
+    state.gpr[0] = 0xaaaaaaaaaaaaaaaaULL;
+    state.gpr[9] = 0xbbbbbbbbbbbbbbbbULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "C7 MOV to a 64-bit register should execute");
+    require(state.gpr[0] == 0xffffffffffffffffULL,
+            "64-bit C7 MOV should sign-extend its imm32");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "C7 MOV to an extended 32-bit register should execute");
+    require(state.gpr[9] == 0x12345678ULL,
+            "32-bit C7 MOV should zero-extend and honor REX.B");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "C7 MOV test program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1094,6 +1126,7 @@ int main() {
         test_movsxd_registers();
         test_movzx_registers();
         test_movsx_registers();
+        test_mov_immediate_group_c7();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

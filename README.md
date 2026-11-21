@@ -77,3 +77,8 @@ Added register-only MOVZX from 8-bit and 16-bit sources to 32-bit or 64-bit dest
 ### v0.24.0 — MOVSX register forms
 
 Added register-only MOVSX from signed 8-bit and 16-bit sources to 32-bit or 64-bit destinations. It shares the correct legacy high-byte versus REX byte-register selection with MOVZX, and tests signed byte/word extension, 32-bit zero-extension, and extended registers. Memory-source MOVSX remains unsupported.
+
+
+### v0.25.0 — C7 immediate MOV register forms
+
+Added the register-direct C7 /0 forms: 32-bit destinations receive imm32 with zero-extension, while 64-bit destinations receive a sign-extended imm32. REX.B selects R8–R15. Memory-destination C7 forms are not yet implemented.
