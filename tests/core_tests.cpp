@@ -49,7 +49,7 @@ void test_interpreter() {
     require(interpreter.step(state, memory) == meridian::cpu::StepResult::Halted,
             "HLT should return the halted result");
 
-    state.rip = 0x2010;
+    state.rip = 0x2020;
     require(interpreter.step(state, memory) == meridian::cpu::StepResult::MemoryFault,
             "instruction fetch beyond mapped memory should fault");
     state.rip = 0x2000;
