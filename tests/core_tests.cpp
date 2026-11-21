@@ -582,6 +582,46 @@ void test_32bit_memory_mov() {
     require(state.rip == 0xd0fc, "faulting 32-bit load must not advance RIP");
 }
 
+void test_test_instruction() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0xe000, 32};
+    const std::array<std::byte, 9> program{
+        // TEST EAX, ECX; TEST R8, R9; HLT.
+        std::byte{0x85}, std::byte{0xc8},
+        std::byte{0x4d}, std::byte{0x85}, std::byte{0xc8},
+        std::byte{0xf4}, std::byte{0x90}, std::byte{0x90}, std::byte{0x90}
+    };
+    require(memory.write(0xe000, program), "TEST program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xe000;
+    state.gpr[0] = 0xffff0000000000f0ULL;
+    state.gpr[1] = 0xaaaaaaaa0000000fULL;
+    state.gpr[8] = 0x8000000000000000ULL;
+    state.gpr[9] = 0x8000000000000000ULL;
+    const auto original_rax = state.gpr[0];
+    const auto original_rcx = state.gpr[1];
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit TEST should execute");
+    require(state.gpr[0] == original_rax && state.gpr[1] == original_rcx,
+            "TEST must not modify its operands");
+    require((state.rflags & (1ULL << 6U)) != 0,
+            "zero 32-bit AND result should set ZF");
+    require((state.rflags & (1ULL << 0U)) == 0 &&
+            (state.rflags & (1ULL << 11U)) == 0,
+            "32-bit TEST should clear CF and OF");
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit TEST with extended registers should execute");
+    require((state.rflags & (1ULL << 7U)) != 0,
+            "negative 64-bit AND result should set SF");
+    require((state.rflags & (1ULL << 6U)) == 0,
+            "nonzero 64-bit AND result should clear ZF");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "TEST program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -613,6 +653,7 @@ int main() {
         test_sib_memory_addressing();
         test_32bit_register_mov();
         test_32bit_memory_mov();
+        test_test_instruction();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

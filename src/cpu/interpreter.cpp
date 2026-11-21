@@ -424,6 +424,28 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
+    // TEST r/m32, r32 and TEST r/m64, r64 (register-only forms).
+    // Updates logical flags without modifying either operand.
+    if (opcode == 0x85) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
+
+        const std::size_t source = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                   (rex_r ? 8U : 0U);
+        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
+                                        (rex_b ? 8U : 0U);
+        if (rex_w) {
+            update_logic_flags(state, state.gpr[destination] & state.gpr[source]);
+        } else {
+            const auto lhs = static_cast<std::uint32_t>(state.gpr[destination]);
+            const auto rhs = static_cast<std::uint32_t>(state.gpr[source]);
+            update_logic_flags32(state, lhs & rhs);
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // Register-only 32-bit and 64-bit ADD, SUB, XOR, and CMP.
     // In 64-bit mode, default operand size is 32 bits unless REX.W is set.
     if (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {

@@ -24,6 +24,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - 32-bit register and immediate ADD, SUB, XOR, and CMP with 32-bit flag behaviour and architectural zero-extension into 64-bit GPRs.
 - 32-bit register-to-register MOV (both operand directions), including REX.R/REX.B extended registers and zero-extension into 64-bit GPRs.
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
+- Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
