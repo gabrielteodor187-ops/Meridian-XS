@@ -144,7 +144,7 @@ void test_branch_instructions() {
     using meridian::cpu::StepResult;
     constexpr std::uint64_t zero_flag = 1ULL << 6U;
     meridian::core::GuestMemory memory{0x5000, 64};
-    const std::array<std::byte, 18> program{
+    const std::array<std::byte, 17> program{
         // JZ +2 (taken to 0x5004), then JMP +2 (to 0x5008).
         std::byte{0x74}, std::byte{0x02},
         std::byte{0x90}, std::byte{0x90},
@@ -152,7 +152,7 @@ void test_branch_instructions() {
         std::byte{0x90}, std::byte{0x90},
         // JNZ +2 (not taken with ZF set), then near JZ +2 (taken).
         std::byte{0x75}, std::byte{0x02},
-        std::byte{0x0f}, std::byte{0x84}, std::byte{0x02},
+        std::byte{0x0f}, std::byte{0x84}, std::byte{0x00},
         std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
         std::byte{0xf4}
     };
@@ -169,7 +169,7 @@ void test_branch_instructions() {
     require(interpreter.step(state, memory) == StepResult::Executed && state.rip == 0x500a,
             "JNZ should fall through when ZF is set");
     require(interpreter.step(state, memory) == StepResult::Executed && state.rip == 0x5010,
-            "near JZ should take a signed 32-bit relative branch");
+            "near JZ should take a signed 32-bit relative branch to HLT");
     require(interpreter.step(state, memory) == StepResult::Halted,
             "branch target should reach HLT");
 }
