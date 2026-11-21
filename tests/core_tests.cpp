@@ -4098,10 +4098,12 @@ void test_indirect_call_jump_and_push_group() {
     call_state.rip = 0x33000;
     call_state.gpr[0] = 0x33010;
     call_state.gpr[4] = 0x33fff0;
-    require(interpreter.step(call_state, memory) == StepResult::Executed &&
-            call_state.rip == 0x33010 &&
-            call_state.gpr[4] == 0x33ffe8,
-            "CALL RAX should branch and push the following instruction address");
+    require(interpreter.step(call_state, memory) == StepResult::Executed,
+            "CALL RAX should execute");
+    require(call_state.rip == 0x33010,
+            "CALL RAX should branch to the target in RAX");
+    require(call_state.gpr[4] == 0x33ffe8,
+            "CALL RAX should decrement RSP by eight bytes");
     require(memory.read_le<std::uint64_t>(0x33ffe8).value_or(0) == 0x33002,
             "CALL RAX should store the correct return address");
     require(interpreter.step(call_state, memory) == StepResult::Halted,

@@ -923,7 +923,7 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             source = *value;
         }
         state.gpr[destination] = static_cast<std::uint64_t>(
-            std::bit_cast<std::int64_t>(std::bit_cast<std::int32_t>(source)));
+            static_cast<std::int64_t>(std::bit_cast<std::int32_t>(source)));
         state.rip = pc;
         return StepResult::Executed;
     }

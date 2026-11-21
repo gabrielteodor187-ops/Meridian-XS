@@ -479,3 +479,8 @@ Added FF /2 indirect near CALL, FF /4 indirect near JMP, and FF /6 PUSH r/m64 fo
 ### v0.79.0 — LEA and MOVSXD
 
 Added LEA with supported SIB/base/displacement/RIP-relative effective-address calculation without reading guest memory, and 64-bit MOVSXD register/memory forms with correct sign extension from a 32-bit source. Tests cover scaled-index LEA, register MOVSXD, and extended-register memory MOVSXD.
+
+
+### v0.79.1 — MOVSXD build correction and indirect-call diagnostics
+
+Corrected the MOVSXD sign-extension cast to widen the signed 32-bit value with a normal signed conversion. Split the indirect CALL test assertions so a failure identifies whether control transfer, stack movement, or return-address storage is wrong.
