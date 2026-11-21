@@ -261,3 +261,8 @@ Expanded the synthetic PE fixture to include both a named import and an ordinal 
 ### v0.51.0 — Callback-based PE import resolution
 
 Added an import resolver callback that receives each module and named/ordinal symbol. The loader records each IAT slot RVA and resolves all symbols before applying any patches, so a missing symbol leaves the image unchanged. Tests cover successful named/ordinal binding and atomic failure. This is an extension point for a future guest OS/API layer; no Windows or Xbox system libraries are implemented.
+
+
+### v0.51.1 — Mutable import-resolution test fixture
+
+Corrected the PE test fixture to retain a mutable loaded-image value while exercising IAT patching. No loader behavior changed.

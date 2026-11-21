@@ -2249,7 +2249,7 @@ void test_pe32_plus_image_loader() {
         file[0x482 + i] = static_cast<std::byte>(function_name[i]);
 
 
-    const auto loaded = PeImageLoader::load(file, 0x150000000ULL);
+    auto loaded = PeImageLoader::load(file, 0x150000000ULL);
     require(loaded.has_value(), "valid PE32+ image should load");
     require(loaded->imports.size() == 1 &&
             loaded->imports[0].name == "kernel32.dll" &&
