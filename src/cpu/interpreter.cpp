@@ -1,6 +1,7 @@
 #include "meridian/cpu/interpreter.hpp"
 
 #include <bit>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -279,6 +280,16 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    bool operand_size_override = false;
+    bool prefix_f3 = false;
+    bool prefix_f2 = false;
+    while (opcode == 0x66 || opcode == 0xf3 || opcode == 0xf2) {
+        if (opcode == 0x66) operand_size_override = true;
+        else if (opcode == 0xf3) prefix_f3 = true;
+        else prefix_f2 = true;
+        if (!fetch8(memory, pc, opcode)) return StepResult::MemoryFault;
+    }
+
     bool rex_w = false;
     bool rex_r = false;
     bool rex_x = false;
@@ -297,6 +308,69 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        // Initial 128-bit SSE/SSE2 data movement and logical operations.
+        if (second == 0x6f || second == 0x7f || second == 0xef ||
+            second == 0xdb || second == 0xeb || second == 0x57) {
+            const bool is_move = second == 0x6f || second == 0x7f;
+            const bool aligned_move = is_move && operand_size_override && !prefix_f3;
+            const bool unaligned_move = is_move && prefix_f3 && !operand_size_override;
+            const bool bitwise_legacy = !is_move && second == 0x57 &&
+                                        !prefix_f3 && !prefix_f2;
+            const bool bitwise_sse2 = !is_move && second != 0x57 &&
+                                      operand_size_override && !prefix_f3 && !prefix_f2;
+            if (!(aligned_move || unaligned_move || bitwise_legacy || bitwise_sse2) ||
+                prefix_f2) return StepResult::UnsupportedInstruction;
+
+            // This first cut requires OSFXSR and rejects CR0.EM/TS rather than
+            // pretending to implement the corresponding #UD/#NM exception path.
+            if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+                (state.control_registers[4] & (1ULL << 9U)) == 0)
+                return StepResult::UnsupportedInstruction;
+
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::size_t reg_index =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const std::size_t rm_index =
+                static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            const bool register_operand = (modrm >> 6U) == 3U;
+            std::uint64_t address = 0;
+            std::array<std::byte, 16> source{};
+            if (register_operand) {
+                source = state.xmm[rm_index];
+            } else {
+                if (!decode_effective_address(state, memory, pc, modrm,
+                                              rex_b, rex_x, 0, address))
+                    return StepResult::MemoryFault;
+                if (aligned_move && (address & 0xfU) != 0)
+                    return StepResult::GeneralProtectionFault;
+                if (second == 0x6f || second == 0xef ||
+                    second == 0xdb || second == 0xeb || second == 0x57) {
+                    if (!memory.read(address, source)) return StepResult::MemoryFault;
+                }
+            }
+
+            if (second == 0x6f) {
+                state.xmm[reg_index] = source;
+            } else if (second == 0x7f) {
+                if (register_operand) state.xmm[rm_index] = state.xmm[reg_index];
+                else if (!memory.write(address, state.xmm[reg_index]))
+                    return StepResult::MemoryFault;
+            } else {
+                for (std::size_t i = 0; i < source.size(); ++i) {
+                    const auto lhs = std::to_integer<unsigned char>(state.xmm[reg_index][i]);
+                    const auto rhs = std::to_integer<unsigned char>(source[i]);
+                    unsigned char result = 0;
+                    if (second == 0xef || second == 0x57) result = lhs ^ rhs;
+                    else if (second == 0xdb) result = lhs & rhs;
+                    else result = lhs | rhs;
+                    state.xmm[reg_index][i] = static_cast<std::byte>(result);
+                }
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // CPUID: expose a conservative synthetic Meridian-XS profile.
         if (second == 0xa2) {
             const std::uint32_t leaf = static_cast<std::uint32_t>(state.gpr[0]);
@@ -604,6 +678,9 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         state.rip = take ? pc + static_cast<std::int64_t>(displacement) : pc;
         return StepResult::Executed;
     }
+
+    if (operand_size_override || prefix_f3 || prefix_f2)
+        return StepResult::UnsupportedInstruction;
 
     // PUSH/POP 64-bit general-purpose registers. REX.B selects R8-R15.
     if (opcode >= 0x50 && opcode <= 0x5f) {

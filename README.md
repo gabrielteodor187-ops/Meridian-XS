@@ -38,6 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
+- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS, and XORPD, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -293,3 +294,8 @@ Added an execution loop over all three guest memory backends (bounded RAM, virtu
 ### v0.54.1 — PE image execution-engine integration test
 
 The end-to-end synthetic PE test now runs the mapped entry point through the bounded execution engine instead of manually stepping the interpreter. It verifies that image parsing, page-table mapping, instruction execution, and HLT termination work together under an instruction budget.
+
+
+### v0.55.0 — Initial SSE/SSE2 XMM instruction subset
+
+Added 128-bit XMM register and memory support for MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS, and XORPD. The first cut requires CR4.OSFXSR, rejects CR0.EM/TS rather than modeling their architectural exception delivery, and enforces 16-byte alignment for MOVDQA memory operands. Tests cover XMM register copies, unaligned-capable loads/stores, XOR/AND operations, OSFXSR gating, and alignment faults. This is only a small SIMD subset; no MXCSR, FXSAVE/FXRSTOR, packed arithmetic, SSE3/SSSE3/SSE4, AVX, or AVX2 support is claimed, and CPUID does not advertise these features yet.

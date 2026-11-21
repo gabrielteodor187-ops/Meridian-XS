@@ -2502,6 +2502,101 @@ void test_bounded_execution_engine() {
             "zero instruction budget should execute no guest instructions");
 }
 
+
+void test_sse_sse2_xmm_instructions() {
+    using meridian::cpu::ExecutionEngine;
+    using meridian::cpu::RunStopReason;
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x2b000, 0x200};
+    const std::array<std::byte, 16> initial{
+        std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0},
+        std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0},
+        std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0},
+        std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0}, std::byte{0xf0}
+    };
+    const std::array<std::byte, 16> input{
+        std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f},
+        std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f},
+        std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f},
+        std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f}, std::byte{0x0f}
+    };
+    const std::array<std::byte, 14> program{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x6f}, std::byte{0xd0}, // MOVDQA XMM2,XMM0
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0x6f}, std::byte{0x08}, // MOVDQU XMM1,[RAX]
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0xef}, std::byte{0xc1}, // PXOR XMM0,XMM1
+        std::byte{0xf4}, std::byte{0x90}
+    };
+    require(memory.write(0x2b000, program), "SSE2 program should load");
+    require(memory.write(0x2b100, input), "SSE2 source vector should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x2b000;
+    state.gpr[0] = 0x2b100;
+    state.control_registers[4] = 1ULL << 9U; // CR4.OSFXSR
+    state.xmm[0] = initial;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVDQA register copy should execute");
+    require(state.xmm[2] == initial,
+            "MOVDQA should copy all 128 bits between XMM registers");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVDQU memory load should execute");
+    require(state.xmm[1] == input,
+            "MOVDQU should load 128 bits from an unaligned-capable memory operand");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "PXOR should execute");
+    for (const auto byte : state.xmm[0])
+        require(byte == std::byte{0xff},
+                "PXOR should XOR every byte lane in the XMM register");
+    const std::array<std::byte, 5> store{
+        std::byte{0xf3}, std::byte{0x0f}, std::byte{0x7f},
+        std::byte{0x40}, std::byte{0x10}
+    };
+    require(memory.write(0x2b020, store), "MOVDQU store instruction should load");
+    state.rip = 0x2b020;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVDQU memory store should execute");
+    std::array<std::byte, 16> stored{};
+    require(memory.read(0x2b110, stored) && stored == state.xmm[0],
+            "MOVDQU should store all 128 XMM bits to guest memory");
+
+    const std::array<std::byte, 4> aligned_load{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0x6f}, std::byte{0x08}
+    };
+    require(memory.write(0x2b030, aligned_load),
+            "MOVDQA alignment test instruction should load");
+    meridian::cpu::CpuState misaligned{};
+    misaligned.rip = 0x2b030;
+    misaligned.gpr[0] = 0x2b101;
+    misaligned.control_registers[4] = 1ULL << 9U;
+    require(interpreter.step(misaligned, memory) == StepResult::GeneralProtectionFault,
+            "MOVDQA should reject an unaligned memory operand");
+    require(misaligned.rip == 0x2b030,
+            "faulting MOVDQA must leave RIP unchanged");
+
+    meridian::cpu::CpuState disabled{};
+    disabled.rip = 0x2b000;
+    disabled.gpr[0] = 0x2b100;
+    disabled.xmm[0] = initial;
+    require(interpreter.step(disabled, memory) == StepResult::UnsupportedInstruction,
+            "SSE instructions should require CR4.OSFXSR in this initial model");
+
+    const std::array<std::byte, 5> bitwise{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0xdb},
+        std::byte{0xc1}, std::byte{0xf4}
+    };
+    require(memory.write(0x2b040, bitwise), "PAND test instruction should load");
+    meridian::cpu::CpuState and_state{};
+    and_state.rip = 0x2b040;
+    and_state.control_registers[4] = 1ULL << 9U;
+    and_state.xmm[0] = initial;
+    and_state.xmm[1] = input;
+    require(interpreter.step(and_state, memory) == StepResult::Executed,
+            "PAND should execute");
+    for (const auto byte : and_state.xmm[0])
+        require(byte == std::byte{0x00},
+                "PAND should perform byte-wise bitwise AND");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2559,6 +2654,7 @@ int main() {
         test_xvd_xvc_header_metadata_reader();
         test_xvc_descriptor_region_metadata();
         test_bounded_execution_engine();
+        test_sse_sse2_xmm_instructions();
 
         test_cpu_state_reset();
         test_interpreter();
