@@ -2136,7 +2136,7 @@ void test_cpuid_rdtsc_and_rdtscp() {
 
     require(interpreter.step(state, memory) == StepResult::Executed,
             "CPUID leaf 0 should execute");
-    require(state.gpr[0] == 1 &&
+    require(state.gpr[0] == 0x0d &&
             state.gpr[3] == 0x6972654dU &&
             state.gpr[2] == 0x6e616964U &&
             state.gpr[1] == 0x20205358U,
@@ -3446,6 +3446,45 @@ void test_xsave_xrstor_ymm_state() {
             "XSAVE should require 64-byte aligned memory");
 }
 
+
+void test_cpuid_xsave_leaf_and_osxsave() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31a00, 64};
+    const std::array<std::byte, 2> cpuid{
+        std::byte{0x0f}, std::byte{0xa2}
+    };
+    require(memory.write(0x31a00, cpuid), "CPUID feature test should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31a00;
+    state.gpr[0] = 1;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CPUID leaf 1 should execute");
+    require((state.gpr[1] & (1U << 26U)) != 0 &&
+            (state.gpr[1] & (1U << 27U)) == 0 &&
+            (state.gpr[1] & (1U << 28U)) == 0,
+            "CPUID should advertise XSAVE but not OSXSAVE or AVX before OS enablement");
+
+    state.rip = 0x31a00;
+    state.control_registers[4] = 1ULL << 18U;
+    state.gpr[0] = 1;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CPUID leaf 1 with OSXSAVE enabled should execute");
+    require((state.gpr[1] & (1U << 27U)) != 0 &&
+            (state.gpr[1] & (1U << 28U)) == 0,
+            "CPUID should expose OSXSAVE only when CR4.OSXSAVE is enabled");
+
+    state.rip = 0x31a00;
+    state.gpr[0] = 0x0d;
+    state.gpr[1] = 0;
+    state.xcr0 = 7;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CPUID leaf 0xD should execute");
+    require(state.gpr[0] == 7 && state.gpr[3] == 832 &&
+            state.gpr[1] == 832 && state.gpr[2] == 0,
+            "CPUID leaf 0xD should report the supported and enabled xstate size");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3522,6 +3561,7 @@ int main() {
         test_sse_sqrt_min_max_subset();
         test_xgetbv_xsetbv_xcr0();
         test_xsave_xrstor_ymm_state();
+        test_cpuid_xsave_leaf_and_osxsave();
 
         test_cpu_state_reset();
         test_interpreter();
