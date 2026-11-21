@@ -66,6 +66,33 @@ StepResult Interpreter::step(CpuState& state, const core::GuestMemory& memory) c
         return StepResult::Halted;
     }
 
+    // Short relative branches: JMP, JZ, and JNZ.
+    if (opcode == 0xeb || opcode == 0x74 || opcode == 0x75) {
+        std::uint8_t raw_displacement = 0;
+        if (!fetch8(memory, pc, raw_displacement)) return StepResult::MemoryFault;
+        const auto displacement = static_cast<std::int8_t>(raw_displacement);
+        const bool zero = (state.rflags & flag_zf) != 0;
+        const bool take = opcode == 0xeb || (opcode == 0x74 && zero) ||
+                          (opcode == 0x75 && !zero);
+        state.rip = take ? pc + static_cast<std::int64_t>(displacement) : pc;
+        return StepResult::Executed;
+    }
+
+    // Near relative JZ/JNZ (0F 84 / 0F 85), with a signed 32-bit offset.
+    if (opcode == 0x0f) {
+        std::uint8_t second = 0;
+        if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        if (second != 0x84 && second != 0x85) return StepResult::UnsupportedInstruction;
+        const auto raw_displacement = memory.read_le<std::uint32_t>(pc);
+        if (!raw_displacement) return StepResult::MemoryFault;
+        pc += 4;
+        const auto displacement = static_cast<std::int32_t>(*raw_displacement);
+        const bool zero = (state.rflags & flag_zf) != 0;
+        const bool take = second == 0x84 ? zero : !zero;
+        state.rip = take ? pc + static_cast<std::int64_t>(displacement) : pc;
+        return StepResult::Executed;
+    }
+
     bool rex_w = false;
     bool rex_r = false;
     bool rex_b = false;
