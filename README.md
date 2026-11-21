@@ -25,6 +25,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - RIP-relative 64-bit MOV loads and stores using signed disp32 offsets, including correct REX.B handling.
 - 32-bit register and immediate ADD, SUB, XOR, and CMP with 32-bit flag behaviour and architectural zero-extension into 64-bit GPRs.
 - 32-bit register-to-register MOV (both operand directions), including REX.R/REX.B extended registers and zero-extension into 64-bit GPRs.
+- Register-direct 16-bit ADD, OR, AND, SUB, XOR, and CMP with operand-size override, correct 16-bit arithmetic flags, and preservation of the destination register's upper 48 bits.
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
 - Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
 - Register and memory destination 32-bit/64-bit OR and AND operations, with logical flag updates.
@@ -519,3 +520,8 @@ Corrected group-2 immediate shifts with memory operands to decode addressing dis
 ### v0.83.0 — CMOVcc and SETcc
 
 Added all condition-code encodings for CMOVcc register/memory sources and SETcc register/memory destinations. CMOV memory operands are read even when the condition is false; 32-bit destinations zero-extend, 16-bit destinations preserve upper bits, and SETcc respects legacy high-byte versus REX low-byte register selection. Tests cover CMOVZ/CMOVNZ and SETZ/SETNZ.
+
+
+### v0.84.0 — 16-bit register arithmetic
+
+Added operand-size-overridden register-direct 16-bit ADD, OR, AND, SUB, XOR, and CMP operations. The implementation updates carry, parity, auxiliary-carry, zero, sign, and overflow flags at 16-bit width; writing operations preserve the upper 48 bits of the destination GPR, and CMP leaves the destination unchanged. Regression tests cover wraparound carry, equality flags, non-writing comparison, and upper-register preservation. Memory-destination 16-bit arithmetic and broader 16-bit decoder coverage remain future work.
