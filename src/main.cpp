@@ -7,7 +7,7 @@ void print_banner() {
     std::cout
         << "Meridian-XS\n"
         << "Xbox Series X|S research emulator project\n"
-        << "Version 0.3.0 (early CPU execution)\n\n";
+        << "Version 0.4.0 (basic arithmetic execution)\n\n";
 }
 
 void print_status() {
@@ -15,10 +15,12 @@ void print_status() {
         << "Implemented foundations:\n"
         << "  - bounded guest RAM and little-endian access\n"
         << "  - x86-64 CPU architectural state\n"
-        << "  - initial interpreter: NOP, HLT, MOV reg, immediate\n"
+        << "  - NOP, HLT, and MOV register-immediate\n"
+        << "  - register-only 64-bit ADD, SUB, XOR, and CMP\n"
+        << "  - basic arithmetic status flags\n"
         << "  - core tests registered with CTest\n\n"
         << "Still missing:\n"
-        << "  - broad x86-64 instruction coverage and flags\n"
+        << "  - broad x86-64 instruction and memory-addressing support\n"
         << "  - virtual memory, interrupts, and scheduling\n"
         << "  - Xbox kernel and system services\n"
         << "  - GPU emulation, storage, and boot support\n";
