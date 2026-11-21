@@ -682,7 +682,7 @@ void test_memory_arithmetic() {
 void test_16bit_memory_arithmetic() {
     using meridian::cpu::StepResult;
     meridian::core::GuestMemory memory{0x12000, 0x200};
-    const std::array<std::byte, 22> program{
+    const std::array<std::byte, 26> program{
         // ADD/OR/AND/SUB/CMP word [RDI+2], CX/DX; XOR word [RDI+4], CX.
         std::byte{0x66}, std::byte{0x01}, std::byte{0x4f}, std::byte{0x02},
         std::byte{0x66}, std::byte{0x09}, std::byte{0x4f}, std::byte{0x02},
