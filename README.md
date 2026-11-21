@@ -10,8 +10,11 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Bounded guest-memory region with checked reads and writes.
 - Little-endian typed memory access.
 - x86-64 architectural CPU state container.
-- Initial instruction interpreter: NOP, HLT, and MOV register-immediate (including REX.B/REX.W forms).
+- Initial instruction interpreter: NOP, HLT, and MOV register-immediate.
+- Register-only 64-bit ADD, SUB, XOR, and CMP instructions.
+- Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - CTest-based tests for memory, CPU state, and supported instructions.
+- GitHub Actions build-and-test workflow.
 
 ## Build and test
 
@@ -25,11 +28,11 @@ ctest --test-dir build --output-on-failure
 
 ## Not implemented
 
-This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, privilege model, virtual memory, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
+This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, memory-addressing execution, virtual memory, privilege model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
 
 ## Development direction
 
-1. Expand x86-64 decoding and implement arithmetic, branches, stack, and memory instructions with tests.
+1. Expand x86-64 decoding, including branches, stack, and memory instructions.
 2. Build a mapped address-space model with page permissions.
 3. Add interrupts, scheduling, and system-call/platform abstractions.
 4. Research graphics command translation and console-specific interfaces using public documentation.
