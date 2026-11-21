@@ -303,9 +303,9 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
         return StepResult::Executed;
     }
 
-    // 64-bit MOV between a register and a supported memory operand.
+    // 32-bit and 64-bit MOV between registers and supported memory operands.
     // Supports base/displacement, SIB, and RIP-relative forms.
-    if (rex_w && (opcode == 0x8b || opcode == 0x89)) {
+    if (opcode == 0x8b || opcode == 0x89) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
 
@@ -316,8 +316,13 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
                                (rex_b ? 8U : 0U);
 
         if (mod == 3) {
-            if (opcode == 0x8b) state.gpr[reg] = state.gpr[rm];
-            else state.gpr[rm] = state.gpr[reg];
+            if (opcode == 0x8b) {
+                state.gpr[reg] = rex_w ? state.gpr[rm] :
+                    static_cast<std::uint32_t>(state.gpr[rm]);
+            } else {
+                state.gpr[rm] = rex_w ? state.gpr[reg] :
+                    static_cast<std::uint32_t>(state.gpr[reg]);
+            }
             state.rip = pc;
             return StepResult::Executed;
         }
@@ -374,12 +379,24 @@ StepResult Interpreter::step(CpuState& state, core::GuestMemory& memory) const n
                                       (index_value << scale_shift) +
                                       static_cast<std::uint64_t>(displacement);
         if (opcode == 0x8b) {
-            const auto value = memory.read_le<std::uint64_t>(address);
-            if (!value) return StepResult::MemoryFault;
-            state.gpr[reg] = *value;
+            if (rex_w) {
+                const auto value = memory.read_le<std::uint64_t>(address);
+                if (!value) return StepResult::MemoryFault;
+                state.gpr[reg] = *value;
+            } else {
+                const auto value = memory.read_le<std::uint32_t>(address);
+                if (!value) return StepResult::MemoryFault;
+                state.gpr[reg] = *value;
+            }
         } else {
-            if (!memory.write_le<std::uint64_t>(address, state.gpr[reg]))
-                return StepResult::MemoryFault;
+            if (rex_w) {
+                if (!memory.write_le<std::uint64_t>(address, state.gpr[reg]))
+                    return StepResult::MemoryFault;
+            } else {
+                if (!memory.write_le<std::uint32_t>(
+                        address, static_cast<std::uint32_t>(state.gpr[reg])))
+                    return StepResult::MemoryFault;
+            }
         }
 
         state.rip = pc;

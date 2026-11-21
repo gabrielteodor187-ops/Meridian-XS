@@ -551,6 +551,45 @@ void test_32bit_register_mov() {
     require(state.rip == 0xc020, "unsupported MOV must not advance RIP");
 }
 
+void test_32bit_memory_mov() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0xd000, 0x100};
+    const std::array<std::byte, 12> program{
+        // MOV [RDI+4], EAX; MOV EBX, [RDI+4].
+        std::byte{0x89}, std::byte{0x47}, std::byte{0x04},
+        std::byte{0x8b}, std::byte{0x5f}, std::byte{0x04},
+        // MOV [R15+8], EAX; MOV ECX, [R15+8] (REX.B).
+        std::byte{0x41}, std::byte{0x89}, std::byte{0x47}, std::byte{0x08},
+        std::byte{0x41}, std::byte{0x8b}, std::byte{0x4f}, std::byte{0x08}
+    };
+    require(memory.write(0xd000, program), "32-bit memory MOV program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0xd000;
+    state.gpr[0] = 0xffffeeee12345678ULL;
+    state.gpr[7] = 0xd080;
+    state.gpr[15] = 0xd090;
+    const meridian::cpu::Interpreter interpreter{};
+
+    for (int i = 0; i < 4; ++i) {
+        require(interpreter.step(state, memory) == StepResult::Executed,
+                "32-bit memory MOV should execute");
+    }
+    require(memory.read_le<std::uint32_t>(0xd084).value_or(0) == 0x12345678U,
+            "32-bit memory store should write only the low four bytes");
+    require(memory.read_le<std::uint32_t>(0xd098).value_or(0) == 0x12345678U,
+            "REX.B should select the extended memory base register");
+    require(state.gpr[3] == 0x12345678ULL && state.gpr[1] == 0x12345678ULL,
+            "32-bit memory loads should zero-extend into destination GPRs");
+
+    state.rip = 0xd0fc;
+    const std::array<std::byte, 2> faulting_load{std::byte{0x8b}, std::byte{0x07}};
+    require(memory.write(0xd0fc, faulting_load), "faulting load should be written");
+    state.gpr[7] = 0xd0ff;
+    require(interpreter.step(state, memory) == StepResult::MemoryFault,
+            "32-bit load crossing the guest-memory boundary should fault");
+    require(state.rip == 0xd0fc, "faulting 32-bit load must not advance RIP");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -581,6 +620,7 @@ int main() {
         test_32bit_arithmetic();
         test_sib_memory_addressing();
         test_32bit_register_mov();
+        test_32bit_memory_mov();
         std::cout << "All Meridian-XS core tests passed.\n";
         return 0;
     } catch (const std::exception& error) {
