@@ -150,3 +150,8 @@ Expanded short conditional branches to all 16 x86 condition codes and added the 
 ### v0.37.0 — SETcc register forms
 
 Added all 16 SETcc condition-code operations for register byte destinations. The implementation preserves the other bits in the destination GPR, supports AH/CH/DH/BH without a REX prefix, and selects SPL/BPL/SIL/DIL or R8B–R15B when REX is present. Memory destinations are not yet supported. Tests cover SETZ, SETNZ, SETB, high-byte preservation, and REX.B extension.
+
+
+### v0.37.1 — Conditional branch test diagnostics
+
+Improved the short-condition regression test failure output to identify the exact opcode and flag combination if a branch condition is evaluated incorrectly.

@@ -1517,8 +1517,13 @@ void test_all_short_condition_codes() {
         require(interpreter.step(state, memory) == StepResult::Executed,
                 "short conditional branch should execute");
         const std::uint64_t expected_rip = 0x1f000 + (item.taken ? 7U : 2U);
-        require(state.rip == expected_rip,
-                "short conditional branch should evaluate its condition flags");
+        if (state.rip != expected_rip) {
+            std::cerr << "Condition opcode " << static_cast<unsigned>(item.opcode)
+                      << " expected RIP " << expected_rip
+                      << " but got " << state.rip
+                      << " with flags " << item.flags << '\\n';
+            require(false, "short conditional branch should evaluate its condition flags");
+        }
     }
 }
 
