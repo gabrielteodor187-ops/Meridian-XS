@@ -3010,6 +3010,103 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    // MOV r/m8, r8 and MOV r8, r/m8, including memory addressing.
+    if (opcode == 0x88 || opcode == 0x8a) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        const std::size_t reg_index = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                      (rex_r ? 8U : 0U);
+        const std::size_t rm_index = static_cast<std::size_t>(modrm & 7U) +
+                                     (rex_b ? 8U : 0U);
+        auto read_byte_register = [&](std::size_t index) -> std::uint8_t {
+            if (!rex_present && index >= 4U && index <= 7U)
+                return static_cast<std::uint8_t>(state.gpr[index - 4U] >> 8U);
+            return static_cast<std::uint8_t>(state.gpr[index]);
+        };
+        auto write_byte_register = [&](std::size_t index, std::uint8_t value) {
+            if (!rex_present && index >= 4U && index <= 7U) {
+                const std::size_t target = index - 4U;
+                state.gpr[target] = (state.gpr[target] & ~0xff00ULL) |
+                                    (static_cast<std::uint64_t>(value) << 8U);
+            } else {
+                state.gpr[index] = (state.gpr[index] & ~0xffULL) | value;
+            }
+        };
+
+        std::uint64_t address = 0;
+        if (mod != 3 &&
+            !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x, 0U, address))
+            return StepResult::MemoryFault;
+        if (opcode == 0x8a) {
+            std::uint8_t value = 0;
+            if (mod == 3) {
+                value = read_byte_register(rm_index);
+            } else {
+                const auto loaded = memory.template read_le<std::uint8_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                value = *loaded;
+            }
+            write_byte_register(reg_index, value);
+        } else {
+            const std::uint8_t value = read_byte_register(reg_index);
+            if (mod == 3) {
+                write_byte_register(rm_index, value);
+            } else if (!memory.template write_le<std::uint8_t>(address, value)) {
+                return StepResult::MemoryFault;
+            }
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
+    // MOV r8, imm8. REX presence changes encodings 4-7 from high-byte
+    // registers (AH/CH/DH/BH) to SPL/BPL/SIL/DIL.
+    if (opcode >= 0xb0 && opcode <= 0xb7) {
+        const std::size_t destination = static_cast<std::size_t>(opcode - 0xb0U) +
+                                        (rex_b ? 8U : 0U);
+        std::uint8_t immediate = 0;
+        if (!fetch8(memory, pc, immediate)) return StepResult::MemoryFault;
+        if (!rex_present && destination >= 4U && destination <= 7U) {
+            const std::size_t target = destination - 4U;
+            state.gpr[target] = (state.gpr[target] & ~0xff00ULL) |
+                                (static_cast<std::uint64_t>(immediate) << 8U);
+        } else {
+            state.gpr[destination] = (state.gpr[destination] & ~0xffULL) | immediate;
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
+    // MOV r/m8, imm8 (C6 /0).
+    if (opcode == 0xc6) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        if (((modrm >> 3U) & 7U) != 0U) return StepResult::UnsupportedInstruction;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
+                                        (rex_b ? 8U : 0U);
+        std::uint64_t address = 0;
+        if (mod != 3 &&
+            !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x, 1U, address))
+            return StepResult::MemoryFault;
+        std::uint8_t immediate = 0;
+        if (!fetch8(memory, pc, immediate)) return StepResult::MemoryFault;
+        if (mod == 3) {
+            if (!rex_present && destination >= 4U && destination <= 7U) {
+                const std::size_t target = destination - 4U;
+                state.gpr[target] = (state.gpr[target] & ~0xff00ULL) |
+                                    (static_cast<std::uint64_t>(immediate) << 8U);
+            } else {
+                state.gpr[destination] = (state.gpr[destination] & ~0xffULL) | immediate;
+            }
+        } else if (!memory.template write_le<std::uint8_t>(address, immediate)) {
+            return StepResult::MemoryFault;
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // 32-bit and 64-bit MOV between registers and supported memory operands.
     // Supports base/displacement, SIB, and RIP-relative forms.
     if (opcode == 0x8b || opcode == 0x89) {
