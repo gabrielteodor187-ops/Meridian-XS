@@ -5103,7 +5103,7 @@ void test_byte_test_instructions() {
             state.gpr[0] == original && (state.rflags & (1ULL << 6U)) != 0,
             "TEST r/m8,r8 should set ZF and preserve its operand");
     state.rip = 0x33e02;
-    require(memory.write_le<std::uint8_t>(0x33e04, 0x0fU),
+    require(memory.write_le<std::uint8_t>(0x33e04, 0xf0U),
             "byte TEST immediate register operand should initialize");
     require(interpreter.step(state, memory) == StepResult::Executed &&
             state.gpr[0] == original && (state.rflags & (1ULL << 6U)) == 0,
