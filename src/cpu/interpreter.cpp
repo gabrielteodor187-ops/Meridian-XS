@@ -3288,23 +3288,51 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
-    // TEST r/m32, r32 and TEST r/m64, r64 (register-only forms).
-    // Updates logical flags without modifying either operand.
+    // TEST r/m16/32/64, r16/32/64. Register and memory sources are read-only.
     if (opcode == 0x85) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
-        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
-
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
         const std::size_t source = static_cast<std::size_t>((modrm >> 3U) & 7U) +
                                    (rex_r ? 8U : 0U);
-        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
-                                        (rex_b ? 8U : 0U);
-        if (rex_w) {
-            update_logic_flags(state, state.gpr[destination] & state.gpr[source]);
+        const std::size_t rm = static_cast<std::size_t>(modrm & 7U) +
+                               (rex_b ? 8U : 0U);
+        std::uint64_t address = 0;
+        if (mod != 3 &&
+            !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x, 0U, address))
+            return StepResult::MemoryFault;
+
+        if (operand_size_override && !rex_w) {
+            std::uint16_t lhs = 0;
+            if (mod == 3) {
+                lhs = static_cast<std::uint16_t>(state.gpr[rm]);
+            } else {
+                const auto loaded = memory.template read_le<std::uint16_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                lhs = *loaded;
+            }
+            update_logic_flags16(state, static_cast<std::uint16_t>(
+                lhs & static_cast<std::uint16_t>(state.gpr[source])));
+        } else if (rex_w) {
+            std::uint64_t lhs = 0;
+            if (mod == 3) {
+                lhs = state.gpr[rm];
+            } else {
+                const auto loaded = memory.template read_le<std::uint64_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                lhs = *loaded;
+            }
+            update_logic_flags(state, lhs & state.gpr[source]);
         } else {
-            const auto lhs = static_cast<std::uint32_t>(state.gpr[destination]);
-            const auto rhs = static_cast<std::uint32_t>(state.gpr[source]);
-            update_logic_flags32(state, lhs & rhs);
+            std::uint32_t lhs = 0;
+            if (mod == 3) {
+                lhs = static_cast<std::uint32_t>(state.gpr[rm]);
+            } else {
+                const auto loaded = memory.template read_le<std::uint32_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                lhs = *loaded;
+            }
+            update_logic_flags32(state, lhs & static_cast<std::uint32_t>(state.gpr[source]));
         }
         state.rip = pc;
         return StepResult::Executed;
