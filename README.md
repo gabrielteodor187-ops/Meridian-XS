@@ -530,3 +530,8 @@ Added operand-size-overridden register-direct 16-bit ADD, OR, AND, SUB, XOR, and
 ### v0.85.0 — 16-bit memory arithmetic
 
 Extended the existing register-to-memory arithmetic decoder to support operand-size-overridden word operations: ADD, OR, AND, SUB, XOR, and CMP. The implementation uses checked 16-bit memory reads and writes, computes flags at word width, and leaves memory unchanged for CMP. Regression coverage exercises all six operations using a base-plus-displacement address. Build/test execution still needs confirmation in the repository's CI environment.
+
+
+### v0.86.0 — 16-bit group-1 immediate arithmetic
+
+Added operand-size-overridden 16-bit group-1 immediate forms for ADD, OR, AND, SUB, XOR, and CMP. Opcode 81 fetches a 16-bit immediate; opcode 83 sign-extends imm8 to the selected word width. Both register and memory destinations are supported, register writes preserve upper bits, and CMP does not write its destination. Regression tests cover sign extension, two-byte immediate decoding, register preservation, and memory writes.
