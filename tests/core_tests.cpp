@@ -3323,6 +3323,58 @@ void test_sse_sqrt_min_max_subset() {
             "MINSS should select the lower scalar and preserve upper bits");
 }
 
+
+void test_xgetbv_xsetbv_xcr0() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31700, 0x100};
+    const std::array<std::byte, 3> xgetbv{
+        std::byte{0x0f}, std::byte{0x01}, std::byte{0xd0}
+    };
+    const std::array<std::byte, 3> xsetbv{
+        std::byte{0x0f}, std::byte{0x01}, std::byte{0xd1}
+    };
+    require(memory.write(0x31700, xgetbv), "XGETBV instruction should load");
+    require(memory.write(0x31710, xsetbv), "XSETBV instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31700;
+    state.control_registers[4] = (1ULL << 18U) | (1ULL << 9U);
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 1 && state.gpr[2] == 0,
+            "XGETBV should return the reset XCR0 value in EDX:EAX");
+
+    state.rip = 0x31710;
+    state.gpr[0] = 3;
+    state.gpr[2] = 0;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.xcr0 == 3,
+            "XSETBV should enable the modeled x87 and SSE state components");
+    state.rip = 0x31700;
+    state.gpr[1] = 0;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.gpr[0] == 3 && state.gpr[2] == 0,
+            "XGETBV should return the updated XCR0 value");
+
+    state.rip = 0x31710;
+    state.gpr[0] = 7; // AVX state is not yet implemented.
+    require(interpreter.step(state, memory) == StepResult::GeneralProtectionFault &&
+            state.xcr0 == 3,
+            "XSETBV should reject unsupported AVX state until YMM state exists");
+
+    meridian::cpu::CpuState user{};
+    user.rip = 0x31710;
+    user.cpl = 3;
+    user.control_registers[4] = (1ULL << 18U) | (1ULL << 9U);
+    user.gpr[0] = 3;
+    require(interpreter.step(user, memory) == StepResult::PrivilegeFault,
+            "XSETBV should be privileged");
+
+    meridian::cpu::CpuState disabled{};
+    disabled.rip = 0x31700;
+    require(interpreter.step(disabled, memory) == StepResult::UnsupportedInstruction,
+            "XGETBV should require CR4.OSXSAVE");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3338,6 +3390,8 @@ void test_cpu_state_reset() {
             "modeled MSR state should reset");
     require(state.cs == 0 && state.ss == 0 && state.gs == 0,
             "segment selectors should reset");
+    require(state.xcr0 == 1,
+            "XCR0 should reset with only the x87 state component enabled");
     require(state.xmm[3][2] == std::byte{0}, "vector registers should reset");
 }
 } // namespace
@@ -3393,6 +3447,7 @@ int main() {
         test_ldmxcsr_stmxcsr();
         test_sse_compare_predicates();
         test_sse_sqrt_min_max_subset();
+        test_xgetbv_xsetbv_xcr0();
 
         test_cpu_state_reset();
         test_interpreter();

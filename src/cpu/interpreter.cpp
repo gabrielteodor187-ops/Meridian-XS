@@ -1038,6 +1038,36 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if (second == 0x01) {
             std::uint8_t modrm = 0;
             if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if (modrm == 0xd0) { // XGETBV
+                if ((state.control_registers[4] & (1ULL << 18U)) == 0)
+                    return StepResult::UnsupportedInstruction;
+                if (static_cast<std::uint32_t>(state.gpr[1]) != 0)
+                    return StepResult::GeneralProtectionFault;
+                state.gpr[0] = static_cast<std::uint32_t>(state.xcr0);
+                state.gpr[2] = static_cast<std::uint32_t>(state.xcr0 >> 32U);
+                state.rip = pc;
+                return StepResult::Executed;
+            }
+            if (modrm == 0xd1) { // XSETBV
+                if (state.cpl != 0) return StepResult::PrivilegeFault;
+                if ((state.control_registers[4] & (1ULL << 18U)) == 0)
+                    return StepResult::UnsupportedInstruction;
+                if (static_cast<std::uint32_t>(state.gpr[1]) != 0)
+                    return StepResult::GeneralProtectionFault;
+                const std::uint64_t value =
+                    (static_cast<std::uint64_t>(
+                        static_cast<std::uint32_t>(state.gpr[2])) << 32U) |
+                    static_cast<std::uint32_t>(state.gpr[0]);
+                // This build models x87 and SSE state only. AVX/YMM state
+                // cannot be enabled until its extended state is implemented.
+                if ((value & 1ULL) == 0 || (value & ~3ULL) != 0 ||
+                    ((value & 2ULL) != 0 &&
+                     (state.control_registers[4] & (1ULL << 9U)) == 0))
+                    return StepResult::GeneralProtectionFault;
+                state.xcr0 = value;
+                state.rip = pc;
+                return StepResult::Executed;
+            }
             if (modrm == 0xf9) { // RDTSCP
                 if ((state.control_registers[4] & (1ULL << 2U)) != 0 &&
                     state.cpl != 0) return StepResult::GeneralProtectionFault;

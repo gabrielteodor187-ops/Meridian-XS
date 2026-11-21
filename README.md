@@ -38,6 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
+- XGETBV/XSETBV with a modeled XCR0 for x87/SSE state (AVX state remains disabled until YMM state is implemented).
 - FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state), plus LDMXCSR/STMXCSR with MXCSR_MASK validation.
 - Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers; MOVUPS/MOVUPD/MOVAPS/MOVAPD packed moves; MOVSS/MOVSD scalar moves with appropriate upper-lane behavior.
 - Legacy CMPPS/CMPPD/CMPSS/CMPSD with all eight immediate predicate forms.
@@ -398,3 +399,8 @@ Added CMPPS/CMPPD/CMPSS/CMPSD with the eight legacy immediate predicates (ordere
 ### v0.66.0 — SSE square root and min/max
 
 Added SQRTPS/SQRTPD/SQRTSS/SQRTSD and MIN/MAX packed/scalar single/double forms. Min/max follow the legacy SSE selection rule of choosing the source operand when values compare equal or unordered. Tests cover packed square roots and scalar minimum with upper-lane preservation. Guest MXCSR exception flags and rounding controls remain incomplete.
+
+
+### v0.67.0 — XGETBV/XSETBV and XCR0 foundation
+
+Added XGETBV and XSETBV for XCR0 index 0, including CR4.OSXSAVE checks, XSETBV privilege checks, and validation of x87/SSE enable dependencies. XCR0 resets to x87-only and can enable the currently modeled SSE state. AVX/YMM state is explicitly rejected until extended vector-state storage and execution are implemented. Tests cover read/write, privilege, feature gating, and rejection of unavailable AVX state.

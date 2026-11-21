@@ -8,6 +8,7 @@ void CpuState::reset() noexcept {
     rflags = 0x2;
     control_registers.fill(0);
     efer = 0;
+    xcr0 = 1;
     star = lstar = cstar = sfmask = 0;
     fs_base = gs_base = kernel_gs_base = 0;
     apic_base = tsc_aux = tsc = 0;
