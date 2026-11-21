@@ -2798,6 +2798,84 @@ void test_unsupported_legacy_prefix_combinations() {
             "unsupported prefixed instruction should leave RIP unchanged");
 }
 
+
+void test_fxsave_fxrstor_state_round_trip() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x30000, 0x1000};
+    const std::array<std::byte, 3> fxsave{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x00}
+    };
+    const std::array<std::byte, 3> fxrstor{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x08}
+    };
+    require(memory.write(0x30000, fxsave), "FXSAVE instruction should load");
+    require(memory.write(0x30010, fxrstor), "FXRSTOR instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x30000;
+    state.gpr[0] = 0x30100;
+    state.control_registers[4] = 1ULL << 9U;
+    state.mxcsr = 0x1f80;
+    state.x87_control_word = 0x027f;
+    state.x87_status_word = 0x1234;
+    state.x87_tag_word = 0x55;
+    state.x87_opcode = 0x456;
+    state.x87_instruction_pointer = 0x1122334455667788ULL;
+    state.x87_data_pointer = 0x8877665544332211ULL;
+    for (std::size_t i = 0; i < state.xmm[0].size(); ++i) {
+        state.xmm[0][i] = static_cast<std::byte>(i + 1U);
+        state.st[0][i] = static_cast<std::byte>(0xf0U + i);
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "FXSAVE should write the 512-byte state image");
+    require(memory.read_le<std::uint32_t>(0x30118).value_or(0) == state.mxcsr,
+            "FXSAVE should store MXCSR at the architectural offset");
+    std::array<std::byte, 16> saved_xmm{};
+    require(memory.read(0x301a0, saved_xmm) && saved_xmm == state.xmm[0],
+            "FXSAVE should store XMM0 in the state image");
+
+    state.rip = 0x30010;
+    state.mxcsr = 0;
+    state.x87_control_word = 0x037f;
+    state.x87_status_word = 0;
+    state.xmm[0].fill(std::byte{0});
+    state.st[0].fill(std::byte{0});
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "FXRSTOR should restore the saved state image");
+    require(state.mxcsr == 0x1f80 && state.x87_control_word == 0x027f &&
+            state.x87_status_word == 0x1234 && state.x87_tag_word == 0x55 &&
+            state.x87_opcode == 0x456,
+            "FXRSTOR should restore modeled x87 environment and MXCSR fields");
+    require(state.x87_instruction_pointer == 0x1122334455667788ULL &&
+            state.x87_data_pointer == 0x8877665544332211ULL,
+            "FXRSTOR should restore saved x87 instruction/data pointers");
+    require(state.xmm[0][0] == std::byte{1} &&
+            state.xmm[0][15] == std::byte{16} &&
+            state.st[0][0] == std::byte{0xf0} &&
+            state.st[0][15] == std::byte{0xff},
+            "FXRSTOR should restore XMM and opaque x87 register storage");
+
+    const std::array<std::byte, 3> misaligned_fxsave{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x00}
+    };
+    require(memory.write(0x30020, misaligned_fxsave),
+            "misaligned FXSAVE instruction should load");
+    state.rip = 0x30020;
+    state.gpr[0] = 0x30101;
+    require(interpreter.step(state, memory) == StepResult::GeneralProtectionFault,
+            "FXSAVE should reject non-16-byte-aligned memory");
+
+    state.rip = 0x30010;
+    state.gpr[0] = 0x30100;
+    require(memory.write_le<std::uint32_t>(0x30118, 0xffffffffU),
+            "invalid MXCSR test value should be writable");
+    const auto old_xmm = state.xmm;
+    require(interpreter.step(state, memory) == StepResult::GeneralProtectionFault,
+            "FXRSTOR should reject reserved MXCSR bits");
+    require(state.xmm == old_xmm,
+            "invalid FXRSTOR image should not partially change XMM state");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2860,6 +2938,7 @@ int main() {
         test_sse2_packed_compare_and_movemask();
         test_sse2_pshufd_and_shufps();
         test_unsupported_legacy_prefix_combinations();
+        test_fxsave_fxrstor_state_round_trip();
 
         test_cpu_state_reset();
         test_interpreter();

@@ -14,6 +14,13 @@ void CpuState::reset() noexcept {
     sysenter_cs = sysenter_esp = sysenter_eip = 0;
     cs = ss = ds = es = fs = gs = 0;
     cpl = 0;
+    x87_control_word = 0x037f;
+    x87_status_word = x87_opcode = 0;
+    x87_tag_word = 0;
+    x87_instruction_pointer = x87_data_pointer = 0;
+    mxcsr = 0x1f80;
+    mxcsr_mask = 0x0000ffbf;
+    for (auto& reg : st) reg.fill(std::byte{0});
     for (auto& reg : xmm) reg.fill(std::byte{0});
 }
 

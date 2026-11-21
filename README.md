@@ -38,6 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
+- FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state).
 - Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB and EQ/GT comparisons, plus PMOVMSKB and PSHUFD/SHUFPS lane shuffles, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
@@ -334,3 +335,8 @@ Added a guard so legacy prefixes are not silently ignored by unrelated two-byte 
 ### v0.58.3 — Shuffle fixture memory bounds
 
 Expanded the PSHUFD/SHUFPS test's guest-memory fixture so its RIP-relative instruction and source vector fit within the allocated region. The previous fixture ended exactly where the new instruction was written.
+
+
+### v0.59.0 — FXSAVE/FXRSTOR state management
+
+Added 64-bit-mode FXSAVE/FXRSTOR memory forms with 16-byte alignment checks, CR4.OSFXSR gating, a 512-byte state image, MXCSR reserved-bit validation, XMM register save/restore, and opaque x87 register-state preservation. Added modeled x87 control/status/tag/opcode and instruction/data pointer fields plus MXCSR defaults to CpuState. Tests cover state round-trip, alignment rejection, and invalid MXCSR rejection. This does not implement x87 arithmetic or the full FPU exception model, and CPUID does not yet advertise the broader SIMD feature set.

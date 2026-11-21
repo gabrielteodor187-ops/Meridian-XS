@@ -2,6 +2,7 @@
 
 #include <bit>
 #include <array>
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
@@ -502,6 +503,100 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         // by unrelated two-byte instructions (for example 66 0F 84).
         if (operand_size_override || prefix_f3 || prefix_f2)
             return StepResult::UnsupportedInstruction;
+
+
+        // FXSAVE/FXRSTOR 512-byte state image (64-bit mode layout).
+        if (second == 0xae) {
+            if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
+                (state.control_registers[4] & (1ULL << 9U)) == 0)
+                return StepResult::UnsupportedInstruction;
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::uint8_t operation =
+                static_cast<std::uint8_t>((modrm >> 3U) & 7U);
+            if ((modrm >> 6U) == 3U || (operation != 0U && operation != 1U))
+                return StepResult::UnsupportedInstruction;
+            std::uint64_t address = 0;
+            if (!decode_effective_address(state, memory, pc, modrm,
+                                          rex_b, rex_x, 0, address))
+                return StepResult::MemoryFault;
+            if ((address & 0xfU) != 0)
+                return StepResult::GeneralProtectionFault;
+
+            std::array<std::byte, 512> area{};
+            const auto put16 = [&](std::size_t offset, std::uint16_t value) {
+                for (std::size_t i = 0; i < 2; ++i)
+                    area[offset + i] =
+                        static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+            };
+            const auto put32 = [&](std::size_t offset, std::uint32_t value) {
+                for (std::size_t i = 0; i < 4; ++i)
+                    area[offset + i] =
+                        static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+            };
+            const auto put64 = [&](std::size_t offset, std::uint64_t value) {
+                for (std::size_t i = 0; i < 8; ++i)
+                    area[offset + i] =
+                        static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+            };
+            const auto get16 = [&](std::size_t offset) {
+                std::uint16_t value = 0;
+                for (std::size_t i = 0; i < 2; ++i)
+                    value |= static_cast<std::uint16_t>(
+                        std::to_integer<unsigned char>(area[offset + i])) << (i * 8U);
+                return value;
+            };
+            const auto get32 = [&](std::size_t offset) {
+                std::uint32_t value = 0;
+                for (std::size_t i = 0; i < 4; ++i)
+                    value |= static_cast<std::uint32_t>(
+                        std::to_integer<unsigned char>(area[offset + i])) << (i * 8U);
+                return value;
+            };
+            const auto get64 = [&](std::size_t offset) {
+                std::uint64_t value = 0;
+                for (std::size_t i = 0; i < 8; ++i)
+                    value |= static_cast<std::uint64_t>(
+                        std::to_integer<unsigned char>(area[offset + i])) << (i * 8U);
+                return value;
+            };
+
+            if (operation == 0U) { // FXSAVE
+                put16(0, state.x87_control_word);
+                put16(2, state.x87_status_word);
+                area[4] = static_cast<std::byte>(state.x87_tag_word);
+                put16(6, state.x87_opcode);
+                put64(8, state.x87_instruction_pointer);
+                put64(16, state.x87_data_pointer);
+                put32(24, state.mxcsr);
+                put32(28, state.mxcsr_mask);
+                for (std::size_t i = 0; i < state.st.size(); ++i)
+                    std::copy(state.st[i].begin(), state.st[i].end(),
+                              area.begin() + 32U + i * 16U);
+                for (std::size_t i = 0; i < state.xmm.size(); ++i)
+                    std::copy(state.xmm[i].begin(), state.xmm[i].end(),
+                              area.begin() + 160U + i * 16U);
+                if (!memory.write(address, area)) return StepResult::MemoryFault;
+            } else { // FXRSTOR
+                if (!memory.read(address, area)) return StepResult::MemoryFault;
+                const std::uint32_t restored_mxcsr = get32(24);
+                if ((restored_mxcsr & ~state.mxcsr_mask) != 0)
+                    return StepResult::GeneralProtectionFault;
+                state.x87_control_word = get16(0);
+                state.x87_status_word = get16(2);
+                state.x87_tag_word = std::to_integer<std::uint8_t>(area[4]);
+                state.x87_opcode = get16(6);
+                state.x87_instruction_pointer = get64(8);
+                state.x87_data_pointer = get64(16);
+                state.mxcsr = restored_mxcsr;
+                for (std::size_t i = 0; i < state.st.size(); ++i)
+                    std::copy_n(area.begin() + 32U + i * 16U, 16, state.st[i].begin());
+                for (std::size_t i = 0; i < state.xmm.size(); ++i)
+                    std::copy_n(area.begin() + 160U + i * 16U, 16, state.xmm[i].begin());
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
 
         // CPUID: expose a conservative synthetic Meridian-XS profile.
         if (second == 0xa2) {

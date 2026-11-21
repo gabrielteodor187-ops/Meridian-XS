@@ -36,6 +36,15 @@ struct CpuState {
     std::uint16_t fs{0};
     std::uint16_t gs{0};
     std::uint8_t cpl{0};
+    std::uint16_t x87_control_word{0x037f};
+    std::uint16_t x87_status_word{0};
+    std::uint16_t x87_opcode{0};
+    std::uint8_t x87_tag_word{0};
+    std::uint64_t x87_instruction_pointer{0};
+    std::uint64_t x87_data_pointer{0};
+    std::uint32_t mxcsr{0x1f80};
+    std::uint32_t mxcsr_mask{0x0000ffbf};
+    std::array<std::array<std::byte, 16>, 8> st{};
     std::array<std::array<std::byte, 16>, 16> xmm{};
 
     void reset() noexcept;
