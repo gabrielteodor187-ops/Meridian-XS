@@ -2,6 +2,7 @@
 
 #include "meridian/core/guest_memory.hpp"
 #include "meridian/core/virtual_address_space.hpp"
+#include "meridian/core/x64_paged_memory.hpp"
 #include "meridian/cpu/cpu_state.hpp"
 
 #include <cstdint>
@@ -21,6 +22,7 @@ class Interpreter {
 public:
     [[nodiscard]] StepResult step(CpuState& state, core::GuestMemory& memory) const noexcept;
     [[nodiscard]] StepResult step(CpuState& state, core::VirtualAddressSpace& memory) const noexcept;
+    [[nodiscard]] StepResult step(CpuState& state, core::X64PagedMemory& memory) const noexcept;
 };
 
 } // namespace meridian::cpu

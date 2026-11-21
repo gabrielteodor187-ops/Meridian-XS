@@ -1795,6 +1795,71 @@ void test_x64_page_table_walker() {
             "non-canonical 48-bit virtual addresses should be rejected");
 }
 
+
+void test_interpreter_through_x64_page_tables() {
+    using meridian::core::GuestMemory;
+    using meridian::core::X64PagedMemory;
+    using meridian::cpu::StepResult;
+    GuestMemory physical{0, 0x10000};
+    constexpr std::uint64_t present_rw = 0x3;
+    require(physical.write_le<std::uint64_t>(0x1000, 0x2000 | present_rw),
+            "paged CPU PML4 entry should initialize");
+    require(physical.write_le<std::uint64_t>(0x2000, 0x3000 | present_rw),
+            "paged CPU PDPT entry should initialize");
+    require(physical.write_le<std::uint64_t>(0x3010, 0x4000 | present_rw),
+            "paged CPU PD entry should initialize");
+    require(physical.write_le<std::uint64_t>(0x4000, 0x8000 | present_rw),
+            "paged CPU code PTE should initialize");
+    require(physical.write_le<std::uint64_t>(0x4008, 0x9000 | present_rw),
+            "paged CPU data PTE should initialize");
+
+    const std::array<std::byte, 6> program{
+        // MOV EAX, [RDI]; ADD EAX, 1; HLT.
+        std::byte{0x8b}, std::byte{0x07},
+        std::byte{0x83}, std::byte{0xc0}, std::byte{0x01},
+        std::byte{0xf4}
+    };
+    require(physical.write(0x8000, program),
+            "paged CPU program should load into physical RAM");
+    require(physical.write_le<std::uint32_t>(0x9000, 41),
+            "paged CPU data should initialize");
+
+    X64PagedMemory memory{physical, 0x1000};
+    meridian::cpu::CpuState state{};
+    state.rip = 0x400000;
+    state.gpr[7] = 0x401000;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CPU should fetch and execute through four-level page tables");
+    require(state.gpr[0] == 41,
+            "paged CPU load should read from the translated physical data page");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "CPU arithmetic should execute through the paged backend");
+    require(state.gpr[0] == 42,
+            "paged CPU arithmetic should update the loaded value");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "paged CPU program should reach HLT");
+
+    require(physical.write_le<std::uint64_t>(
+                0x4000, 0x8000 | present_rw | (1ULL << 63U)),
+            "paged CPU code PTE should become NX");
+    meridian::cpu::CpuState nx_state{};
+    nx_state.rip = 0x400000;
+    require(interpreter.step(nx_state, memory) == StepResult::MemoryFault,
+            "CPU instruction fetch must honor page-table NX permissions");
+
+    require(physical.write_le<std::uint64_t>(0x4000, 0x8000 | present_rw),
+            "paged CPU code PTE should restore execute permission");
+    require(physical.write_le<std::uint64_t>(0x4008, 0x9000 | 0x1ULL),
+            "paged CPU data PTE should become read-only");
+    const std::array<std::byte, 1> replacement{std::byte{0x2a}};
+    require(!memory.write(0x401000, replacement),
+            "paged CPU backend should reject writes to a read-only page");
+    require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 41,
+            "rejected paged write must preserve physical data");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1837,6 +1902,7 @@ int main() {
         test_setcc_memory_operands();
         test_group1_immediate_memory_destinations();
         test_x64_page_table_walker();
+        test_interpreter_through_x64_page_tables();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

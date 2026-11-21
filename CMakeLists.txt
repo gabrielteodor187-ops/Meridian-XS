@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(MeridianXS VERSION 0.41.1 LANGUAGES CXX)
+project(MeridianXS VERSION 0.42.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,6 +9,7 @@ set(MERIDIAN_CORE_SOURCES
     src/core/guest_memory.cpp
     src/core/virtual_address_space.cpp
     src/core/x64_page_table_walker.cpp
+    src/core/x64_paged_memory.cpp
     src/cpu/cpu_state.cpp
     src/cpu/interpreter.cpp
 )

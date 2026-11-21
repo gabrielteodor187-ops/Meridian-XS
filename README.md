@@ -31,7 +31,8 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Group-1 immediate arithmetic using imm32 and sign-extended imm8 encodings, with register and supported memory destinations.
 - 32-bit and 64-bit memory-destination ADD, SUB, XOR, and CMP using base, disp8, disp32, SIB-scaled index, no-base SIB, and RIP-relative addressing.
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
-- Standalone four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
+- Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
+- CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -47,7 +48,7 @@ ctest --test-dir build --output-on-failure
 
 ## Not implemented
 
-This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, integrated CPU page-table walking or privilege model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
+This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, full CPU privilege/control-register model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
 
 ## Development direction
 
@@ -187,3 +188,8 @@ Added a standalone four-level x86-64 page-table walker for 48-bit canonical virt
 ### v0.41.1 — Page-table test include fix
 
 Added the new page-table walker header to the core test translation unit and clarified the read-only page-entry mask expression. The page-walker implementation itself is unchanged.
+
+
+### v0.42.0 — CPU execution through x86-64 page tables
+
+Added X64PagedMemory, a virtual-memory backend that translates each CPU fetch/read/write through the four-level page tables rooted at CR3. The interpreter now has an overload for this backend, so instruction fetches honor NX and data writes honor page-level RW permissions. Range validation occurs before writes to prevent partial cross-page updates. End-to-end tests execute MOV, ADD, and HLT from a virtual code address while loading data from a separate virtual page, then verify NX fetch denial and read-only write denial. TLBs, page-fault error codes, CR0/CR4/EFER control-register state, and privilege transitions are still not implemented.

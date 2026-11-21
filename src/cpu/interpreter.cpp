@@ -1168,4 +1168,8 @@ StepResult Interpreter::step(CpuState& state, core::VirtualAddressSpace& memory)
     return step_impl(state, memory);
 }
 
+StepResult Interpreter::step(CpuState& state, core::X64PagedMemory& memory) const noexcept {
+    return step_impl(state, memory);
+}
+
 } // namespace meridian::cpu
