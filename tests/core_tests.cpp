@@ -3144,7 +3144,7 @@ void test_sse_bitwise_and_movemask_family() {
 
     const std::array<std::byte, 5> movmskpd{
         std::byte{0x66}, std::byte{0x0f}, std::byte{0x50},
-        std::byte{0xd0}, std::byte{0xf4}
+        std::byte{0xc0}, std::byte{0xf4}
     };
     require(memory.write(0x31340, movmskpd), "MOVMSKPD instruction should load");
     meridian::cpu::CpuState double_mask{};

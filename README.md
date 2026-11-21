@@ -382,3 +382,8 @@ Added ANDPS/ANDPD, ANDNPS/ANDNPD, ORPS/ORPD alongside the existing XOR operation
 ### v0.64.0 — LDMXCSR/STMXCSR
 
 Added memory-form LDMXCSR and STMXCSR to load/store the guest MXCSR register. LDMXCSR rejects reserved bits according to the modeled MXCSR_MASK and leaves state unchanged on failure. Tests cover valid load/store and invalid reserved-bit rejection. Floating-point SIMD operations still use the host's default rounding behavior and do not yet update guest MXCSR exception flags.
+
+
+### v0.64.1 — MOVMSKPD test register selection
+
+Corrected the MOVMSKPD test's ModRM byte to select RAX as the destination, matching the assertion. The instruction implementation was unchanged.
