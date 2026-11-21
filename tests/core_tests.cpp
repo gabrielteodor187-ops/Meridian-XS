@@ -4191,6 +4191,71 @@ void test_lea_and_movsxd_addressing() {
             "MOVSXD should sign-extend a memory dword into an extended GPR");
 }
 
+
+void test_movzx_movsx_byte_word_sources() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33200, 0x100};
+    const std::array<std::byte, 3> movzx_ah{
+        std::byte{0x0f}, std::byte{0xb6}, std::byte{0xc4}
+    };
+    const std::array<std::byte, 4> movzx_spl{
+        std::byte{0x40}, std::byte{0x0f}, std::byte{0xb6}, std::byte{0xc4}
+    };
+    const std::array<std::byte, 4> movsx_cl{
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0xbe}, std::byte{0xc1}
+    };
+    const std::array<std::byte, 3> movsx_memory{
+        std::byte{0x0f}, std::byte{0xbf}, std::byte{0x03}
+    };
+    const std::array<std::byte, 4> movzx_ax{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0xb7}, std::byte{0xc1}
+    };
+    require(memory.write(0x33200, movzx_ah), "MOVZX AH instruction should load");
+    require(memory.write(0x33210, movzx_spl), "MOVZX SPL instruction should load");
+    require(memory.write(0x33220, movsx_cl), "MOVSX CL instruction should load");
+    require(memory.write(0x33230, movsx_memory), "MOVSX memory instruction should load");
+    require(memory.write(0x33240, movzx_ax), "MOVZX AX instruction should load");
+    require(memory.write_le<std::uint16_t>(0x33280, 0x8001U),
+            "MOVSX word source should load");
+
+    const meridian::cpu::Interpreter interpreter{};
+    meridian::cpu::CpuState ah_state{};
+    ah_state.rip = 0x33200;
+    ah_state.gpr[0] = 0x123456789abcdef0ULL;
+    require(interpreter.step(ah_state, memory) == StepResult::Executed &&
+            ah_state.gpr[0] == 0xde,
+            "MOVZX should select AH when no REX prefix is present");
+
+    meridian::cpu::CpuState spl_state{};
+    spl_state.rip = 0x33210;
+    spl_state.gpr[4] = 0x1234;
+    require(interpreter.step(spl_state, memory) == StepResult::Executed &&
+            spl_state.gpr[0] == 0x34,
+            "MOVZX should select SPL when a REX prefix is present");
+
+    meridian::cpu::CpuState cl_state{};
+    cl_state.rip = 0x33220;
+    cl_state.gpr[1] = 0x80;
+    require(interpreter.step(cl_state, memory) == StepResult::Executed &&
+            cl_state.gpr[0] == 0xffffffffffffff80ULL,
+            "MOVSX should sign-extend a byte source to 64 bits");
+
+    meridian::cpu::CpuState memory_state{};
+    memory_state.rip = 0x33230;
+    memory_state.gpr[3] = 0x33280;
+    require(interpreter.step(memory_state, memory) == StepResult::Executed &&
+            memory_state.gpr[0] == 0xffff8001ULL,
+            "MOVSX should sign-extend a memory word into a 32-bit destination");
+
+    meridian::cpu::CpuState word_state{};
+    word_state.rip = 0x33240;
+    word_state.gpr[0] = 0x1122334455667788ULL;
+    word_state.gpr[1] = 0xabcd;
+    require(interpreter.step(word_state, memory) == StepResult::Executed &&
+            word_state.gpr[0] == 0x112233445566abcdULL,
+            "16-bit MOVZX destination should preserve upper GPR bits");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4280,6 +4345,7 @@ int main() {
         test_avx2_saturating_and_minmax_operations();
         test_indirect_call_jump_and_push_group();
         test_lea_and_movsxd_addressing();
+        test_movzx_movsx_byte_word_sources();
 
         test_cpu_state_reset();
         test_interpreter();

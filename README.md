@@ -18,7 +18,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
 - Near relative CALL and RET with checked guest-stack access; indirect register/memory CALL and JMP plus FF-group PUSH r/m64.
-- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation and MOVSXD r64,r/m32.
+- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation, MOVSXD r64,r/m32, and MOVZX/MOVSX byte/word source forms.
 - REX.R/REX.B extension for memory MOV register and base selection.
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
@@ -489,3 +489,8 @@ Corrected the MOVSXD sign-extension cast to widen the signed 32-bit value with a
 ### v0.79.2 — Indirect-control-flow test stack bounds
 
 Corrected the synthetic indirect CALL/PUSH test stack addresses to lie inside its 4 KiB GuestMemory region. The earlier fixture used an address one hexadecimal digit too high; the instruction implementation was unchanged.
+
+
+### v0.80.0 — MOVZX/MOVSX byte and word forms
+
+Added MOVZX/MOVSX from 8-/16-bit register or memory sources into 16-/32-/64-bit GPR destinations, including legacy AH/CH/DH/BH selection when no REX prefix is present and SPL/BPL/SIL/DIL selection when REX is present. Tests cover high-byte/low-byte register rules, signed extension, memory operands, and 16-bit destination preservation.

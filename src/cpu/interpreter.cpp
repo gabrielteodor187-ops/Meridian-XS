@@ -933,6 +933,63 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
 
+        // MOVZX/MOVSX byte and word sources into 16/32/64-bit GPR destinations.
+        if (second == 0xb6 || second == 0xb7 ||
+            second == 0xbe || second == 0xbf) {
+            if (prefix_f3 || prefix_f2)
+                return StepResult::UnsupportedInstruction;
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            const std::size_t destination =
+                static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
+            const bool byte_source = second == 0xb6 || second == 0xbe;
+            const bool sign_extend = second == 0xbe || second == 0xbf;
+            const std::size_t source_width = byte_source ? 1U : 2U;
+            std::uint64_t source = 0;
+            if ((modrm >> 6U) == 3U) {
+                const std::size_t source_register =
+                    static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+                if (byte_source && !rex_present &&
+                    source_register >= 4U && source_register <= 7U) {
+                    source = (state.gpr[source_register - 4U] >> 8U) & 0xffU;
+                } else {
+                    source = state.gpr[source_register] &
+                        (byte_source ? 0xffU : 0xffffU);
+                }
+            } else {
+                std::uint64_t address = 0;
+                if (!decode_effective_address(state, memory, pc, modrm,
+                                              rex_b, rex_x, 0, address))
+                    return StepResult::MemoryFault;
+                if (byte_source) {
+                    const auto value = memory.template read_le<std::uint8_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                } else {
+                    const auto value = memory.template read_le<std::uint16_t>(address);
+                    if (!value) return StepResult::MemoryFault;
+                    source = *value;
+                }
+            }
+            std::uint64_t value = source;
+            if (sign_extend) {
+                const std::int64_t signed_value = byte_source
+                    ? static_cast<std::int8_t>(source)
+                    : static_cast<std::int16_t>(source);
+                value = static_cast<std::uint64_t>(signed_value);
+            }
+            if (rex_w) {
+                state.gpr[destination] = value;
+            } else if (operand_size_override) {
+                state.gpr[destination] =
+                    (state.gpr[destination] & ~0xffffULL) | (value & 0xffffULL);
+            } else {
+                state.gpr[destination] = static_cast<std::uint32_t>(value);
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // 128-bit packed and scalar SSE register/memory moves.
         if (second == 0x10 || second == 0x11 ||
             second == 0x28 || second == 0x29) {
