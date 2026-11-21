@@ -7,7 +7,7 @@ void print_banner() {
     std::cout
         << "Meridian-XS\n"
         << "Xbox Series X|S research emulator project\n"
-        << "Version 0.86.0 (16-bit immediate arithmetic support)\n\n";
+        << "Version 0.87.0 (16-bit register arithmetic dispatch fix)\n\n";
 }
 
 void print_status() {
