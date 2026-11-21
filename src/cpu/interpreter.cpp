@@ -248,6 +248,50 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        // INVLPG m: invalidate the translation for the supplied linear address.
+        if (second == 0x01) {
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if (((modrm >> 3U) & 7U) != 7U || (modrm >> 6U) == 3U)
+                return StepResult::UnsupportedInstruction;
+            if (state.cpl != 0) return StepResult::PrivilegeFault;
+            std::uint64_t address = 0;
+            if (!decode_effective_address(state, memory, pc, modrm,
+                                          rex_b, rex_x, 0, address))
+                return StepResult::MemoryFault;
+            if constexpr (requires(Memory& candidate) {
+                candidate.invalidate_page(std::uint64_t{});
+            }) {
+                memory.invalidate_page(address);
+                state.rip = pc;
+                return StepResult::Executed;
+            } else {
+                return StepResult::UnsupportedInstruction;
+            }
+        }
+
+        // MOV between a general-purpose register and CR0/CR2/CR3/CR4/CR8.
+        if (second == 0x20 || second == 0x22) {
+            std::uint8_t modrm = 0;
+            if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if ((modrm >> 6U) != 3U) return StepResult::UnsupportedInstruction;
+            if (state.cpl != 0) return StepResult::PrivilegeFault;
+            const std::size_t control = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                        (rex_r ? 8U : 0U);
+            const std::size_t general = static_cast<std::size_t>(modrm & 7U) +
+                                        (rex_b ? 8U : 0U);
+            if (control != 0 && control != 2 && control != 3 &&
+                control != 4 && control != 8)
+                return StepResult::UnsupportedInstruction;
+            if (second == 0x20) {
+                state.gpr[general] = state.control_registers[control];
+            } else {
+                state.control_registers[control] = state.gpr[general];
+            }
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+
         // CMOVcc r16/r32/r64, r/m. Register-direct source forms are supported.
         if (second >= 0x40 && second <= 0x4f) {
             std::uint8_t modrm = 0;
@@ -1169,7 +1213,17 @@ StepResult Interpreter::step(CpuState& state, core::VirtualAddressSpace& memory)
 }
 
 StepResult Interpreter::step(CpuState& state, core::X64PagedMemory& memory) const noexcept {
-    return step_impl(state, memory);
+    const auto synchronize_paging_context = [&]() noexcept {
+        constexpr std::uint64_t cr0_wp = 1ULL << 16U;
+        constexpr std::uint64_t efer_nxe = 1ULL << 11U;
+        memory.set_context(state.control_registers[3], state.cpl == 3,
+                           (state.control_registers[0] & cr0_wp) != 0,
+                           (state.efer & efer_nxe) != 0);
+    };
+    synchronize_paging_context();
+    const StepResult result = step_impl(state, memory);
+    synchronize_paging_context();
+    return result;
 }
 
 } // namespace meridian::cpu

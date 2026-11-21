@@ -1828,6 +1828,9 @@ void test_interpreter_through_x64_page_tables() {
     meridian::cpu::CpuState state{};
     state.rip = 0x400000;
     state.gpr[7] = 0x401000;
+    state.control_registers[0] = 1ULL << 16U; // CR0.WP
+    state.control_registers[3] = 0x1000;      // CR3
+    state.efer = 1ULL << 11U;                 // EFER.NXE
     const meridian::cpu::Interpreter interpreter{};
 
     require(interpreter.step(state, memory) == StepResult::Executed,
@@ -1847,6 +1850,9 @@ void test_interpreter_through_x64_page_tables() {
     memory.invalidate_page(0x400000);
     meridian::cpu::CpuState nx_state{};
     nx_state.rip = 0x400000;
+    nx_state.control_registers[0] = 1ULL << 16U;
+    nx_state.control_registers[3] = 0x1000;
+    nx_state.efer = 1ULL << 11U;
     require(interpreter.step(nx_state, memory) == StepResult::MemoryFault,
             "CPU instruction fetch must honor page-table NX permissions");
 
@@ -1879,6 +1885,100 @@ void test_interpreter_through_x64_page_tables() {
             "unchanged paging context should preserve valid TLB state");
 }
 
+
+void test_control_register_moves_and_invlpg() {
+    using meridian::core::GuestMemory;
+    using meridian::core::X64PagedMemory;
+    using meridian::cpu::StepResult;
+    GuestMemory physical{0, 0x10000};
+    constexpr std::uint64_t present_rw_user = 0x7;
+    require(physical.write_le<std::uint64_t>(0x1000, 0x2000 | present_rw_user),
+            "CR test initial PML4 should initialize");
+    require(physical.write_le<std::uint64_t>(0x5000, 0x2000 | present_rw_user),
+            "CR test alternate PML4 should initialize");
+    require(physical.write_le<std::uint64_t>(0x2000, 0x3000 | present_rw_user),
+            "CR test PDPT should initialize");
+    require(physical.write_le<std::uint64_t>(0x3010, 0x4000 | present_rw_user),
+            "CR test PD should initialize");
+    require(physical.write_le<std::uint64_t>(0x4000, 0x8000 | present_rw_user),
+            "CR test code PTE should initialize");
+    require(physical.write_le<std::uint64_t>(0x4008, 0x9000 | present_rw_user),
+            "CR test data PTE should initialize");
+    const std::array<std::byte, 17> cr_program{
+        // MOV RAX, 0x5000; MOV CR3, RAX; MOV RBX, CR3; HLT.
+        std::byte{0x48}, std::byte{0xb8},
+        std::byte{0x00}, std::byte{0x50}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x0f}, std::byte{0x22}, std::byte{0xd8},
+        std::byte{0x0f}, std::byte{0x20}, std::byte{0xd9},
+        std::byte{0xf4}
+    };
+    require(physical.write(0x8000, cr_program),
+            "control-register test program should load");
+    X64PagedMemory memory{physical, 0x1000};
+    meridian::cpu::CpuState state{};
+    state.rip = 0x400000;
+    state.control_registers[0] = 1ULL << 16U;
+    state.control_registers[3] = 0x1000;
+    state.efer = 1ULL << 11U;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOV immediate before CR3 write should execute");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "privileged MOV CR3, RAX should execute at CPL0");
+    require(state.control_registers[3] == 0x5000,
+            "MOV to CR3 should update the architectural control register");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOV RBX, CR3 should execute using the new paging root");
+    require(state.gpr[3] == 0x5000,
+            "MOV from CR3 should copy the active paging root");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "control-register program should reach HLT");
+
+    const std::array<std::byte, 4> invlpg_program{
+        // INVLPG [RDI]; HLT.
+        std::byte{0x0f}, std::byte{0x01}, std::byte{0x3f}, std::byte{0xf4}
+    };
+    require(physical.write(0x8000, invlpg_program),
+            "INVLPG test program should load");
+    require(physical.write_le<std::uint32_t>(0x9000, 41),
+            "INVLPG old data page should initialize");
+    require(physical.write_le<std::uint32_t>(0xa000, 99),
+            "INVLPG replacement data page should initialize");
+    require(physical.write_le<std::uint64_t>(0x4008, 0x9000 | present_rw_user),
+            "INVLPG initial data PTE should initialize");
+    memory.set_context(0x1000, false, true, true);
+    require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 41,
+            "INVLPG setup should populate a cached translation");
+    require(physical.write_le<std::uint64_t>(0x4008, 0xa000 | present_rw_user),
+            "INVLPG data PTE should remap");
+    meridian::cpu::CpuState invlpg_state{};
+    invlpg_state.rip = 0x400000;
+    invlpg_state.gpr[7] = 0x401000;
+    invlpg_state.control_registers[0] = 1ULL << 16U;
+    invlpg_state.control_registers[3] = 0x1000;
+    invlpg_state.efer = 1ULL << 11U;
+    require(interpreter.step(invlpg_state, memory) == StepResult::Executed,
+            "privileged INVLPG should execute");
+    require(memory.read_le<std::uint32_t>(0x401000).value_or(0) == 99,
+            "INVLPG should invalidate the stale virtual-page translation");
+    require(interpreter.step(invlpg_state, memory) == StepResult::Halted,
+            "INVLPG program should reach HLT");
+
+    const std::array<std::byte, 3> privileged_program{
+        std::byte{0x0f}, std::byte{0x20}, std::byte{0xd8}
+    };
+    require(physical.write(0x8000, privileged_program),
+            "unprivileged CR access program should load");
+    meridian::cpu::CpuState user_state{};
+    user_state.rip = 0x400000;
+    user_state.cpl = 3;
+    user_state.control_registers[3] = 0x1000;
+    user_state.efer = 1ULL << 11U;
+    require(interpreter.step(user_state, memory) == StepResult::PrivilegeFault,
+            "MOV from CR3 must fault outside ring zero");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1888,6 +1988,8 @@ void test_cpu_state_reset() {
     state.reset();
     require(state.gpr[0] == 0 && state.rip == 0, "general CPU state should reset");
     require(state.rflags == 0x2, "RFLAGS reserved bit 1 should be set");
+    require(state.control_registers[3] == 0 && state.efer == 0 && state.cpl == 0,
+            "control registers, EFER, and CPL should reset");
     require(state.xmm[3][2] == std::byte{0}, "vector registers should reset");
 }
 } // namespace
@@ -1922,6 +2024,7 @@ int main() {
         test_group1_immediate_memory_destinations();
         test_x64_page_table_walker();
         test_interpreter_through_x64_page_tables();
+        test_control_register_moves_and_invlpg();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

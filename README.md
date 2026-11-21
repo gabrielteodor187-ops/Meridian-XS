@@ -9,7 +9,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - C++23 / CMake project.
 - Bounded guest-memory region with checked reads and writes.
 - Little-endian typed memory access.
-- x86-64 architectural CPU state container.
+- x86-64 architectural CPU state container, including CR0–CR8 storage, EFER, and current privilege level.
 - Initial instruction interpreter: NOP, HLT, and MOV register-immediate.
 - Register-only 64-bit ADD, SUB, XOR, and CMP instructions.
 - Short JMP and all 16 x86 condition-code branches, plus near 32-bit conditional branches.
@@ -33,6 +33,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
+- Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms and INVLPG for the paged-memory backend.
 - CTest-based tests for memory, CPU state, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -48,7 +49,7 @@ ctest --test-dir build --output-on-failure
 
 ## Not implemented
 
-This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, full CPU privilege/control-register model, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
+This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is no complete x86-64 decoder, complete CPU privilege/control-register model, page-fault delivery, interrupt handling, Xbox kernel/system-service layer, GPU emulation, boot flow, or game compatibility. The CPU interpreter is an early educational foundation, not a commercial-game execution engine.
 
 ## Development direction
 
@@ -203,3 +204,8 @@ Added a small direct-mapped 64-entry translation cache to X64PagedMemory. Cached
 ### v0.43.1 — TLB permission-test invalidation
 
 Updated the paging integration test to explicitly invalidate cached code/data translations after modifying their page-table entries. This reflects x86 TLB behavior: page-table memory writes do not automatically invalidate existing translations.
+
+
+### v0.44.0 — Control registers and INVLPG
+
+Extended CpuState with CR0–CR8 storage, EFER, and CPL. Added privileged MOV between GPRs and CR0/CR2/CR3/CR4/CR8, plus INVLPG for X64PagedMemory. The paged interpreter synchronizes CR3, CPL, CR0.WP, and EFER.NXE into the memory backend before and after each instruction; CR3 or paging-mode changes flush the software TLB. Added tests for CR3 switching, reading CR3, INVLPG remapping, and ring-3 privilege faults. Full control-register validation, MSR instructions, page-fault delivery, and privilege transitions are still incomplete.

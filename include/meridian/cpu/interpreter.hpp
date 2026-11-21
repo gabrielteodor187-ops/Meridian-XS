@@ -13,7 +13,8 @@ enum class StepResult {
     Executed,
     Halted,
     MemoryFault,
-    UnsupportedInstruction
+    UnsupportedInstruction,
+    PrivilegeFault
 };
 
 // Small, deliberately incomplete x86-64 interpreter used to grow and test
