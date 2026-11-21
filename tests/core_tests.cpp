@@ -1661,6 +1661,68 @@ void test_setcc_memory_operands() {
             "memory SETcc program should reach HLT");
 }
 
+
+void test_group1_immediate_memory_destinations() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x24000, 0x100};
+    const std::array<std::byte, 13> program{
+        // ADD dword [RDI], 1; AND qword [RDI+8], -128;
+        // CMP dword [RDI+4], 2; HLT.
+        std::byte{0x83}, std::byte{0x07}, std::byte{0x01},
+        std::byte{0x48}, std::byte{0x83}, std::byte{0x67},
+        std::byte{0x08}, std::byte{0x80},
+        std::byte{0x83}, std::byte{0x7f}, std::byte{0x04}, std::byte{0x02},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x24000, program), "Group-1 memory immediate program should load");
+    require(memory.write_le<std::uint32_t>(0x24020, 5),
+            "Group-1 ADD memory target should initialize");
+    require(memory.write_le<std::uint32_t>(0x24024, 2),
+            "Group-1 CMP memory target should initialize");
+    require(memory.write_le<std::uint64_t>(0x24028, 0x1234),
+            "Group-1 AND memory target should initialize");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x24000;
+    state.gpr[7] = 0x24020;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "imm8 ADD to memory should execute");
+    require(memory.read_le<std::uint32_t>(0x24020).value_or(0) == 6,
+            "imm8 ADD should update a 32-bit memory destination");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit imm8 AND to memory should execute");
+    require(memory.read_le<std::uint64_t>(0x24028).value_or(0) == 0x1200,
+            "64-bit memory AND should sign-extend its imm8 operand");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "imm8 CMP against memory should execute");
+    require((state.rflags & (1ULL << 6U)) != 0,
+            "memory CMP should set ZF for equal operands");
+    require(memory.read_le<std::uint32_t>(0x24024).value_or(0) == 2,
+            "memory CMP must not modify its destination");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "Group-1 memory immediate program should reach HLT");
+
+    meridian::core::GuestMemory rip_memory{0x24100, 0x100};
+    const std::array<std::byte, 8> rip_program{
+        // ADD dword [RIP+0x16], 1; HLT.
+        std::byte{0x83}, std::byte{0x05},
+        std::byte{0x16}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x01}, std::byte{0xf4}
+    };
+    require(rip_memory.write(0x24100, rip_program),
+            "RIP-relative Group-1 program should load");
+    require(rip_memory.write_le<std::uint32_t>(0x2411d, 9),
+            "RIP-relative Group-1 target should initialize");
+    meridian::cpu::CpuState rip_state{};
+    rip_state.rip = 0x24100;
+    require(interpreter.step(rip_state, rip_memory) == StepResult::Executed,
+            "RIP-relative imm8 ADD to memory should execute");
+    require(rip_memory.read_le<std::uint32_t>(0x2411d).value_or(0) == 10,
+            "RIP-relative address should include the trailing immediate byte");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1701,6 +1763,7 @@ int main() {
         test_setcc_register_forms();
         test_cmovcc_register_forms();
         test_setcc_memory_operands();
+        test_group1_immediate_memory_destinations();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

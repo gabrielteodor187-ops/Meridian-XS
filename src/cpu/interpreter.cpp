@@ -27,7 +27,7 @@ bool fetch8(const Memory& memory, std::uint64_t& pc, std::uint8_t& out) noexcept
 template <typename Memory>
 bool decode_effective_address(const CpuState& state, const Memory& memory,
                               std::uint64_t& pc, std::uint8_t modrm,
-                              bool rex_b, bool rex_x,
+                              bool rex_b, bool rex_x, std::size_t trailing_bytes,
                               std::uint64_t& address) noexcept {
     const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
     if (mod == 3) return false;
@@ -77,7 +77,7 @@ bool decode_effective_address(const CpuState& state, const Memory& memory,
         pc += 4;
     }
 
-    address = (rip_relative ? pc : (has_base ? base_value : 0)) +
+    address = (rip_relative ? pc + trailing_bytes : (has_base ? base_value : 0)) +
               (index_value << scale_shift) +
               static_cast<std::uint64_t>(displacement);
     return true;
@@ -277,7 +277,7 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             if (mod != 3) {
                 std::uint64_t address = 0;
                 if (!decode_effective_address(state, memory, pc, modrm,
-                                              rex_b, rex_x, address))
+                                              rex_b, rex_x, 0, address))
                     return StepResult::MemoryFault;
                 if (!memory.template write_le<std::uint8_t>(address, value))
                     return StepResult::MemoryFault;
@@ -436,13 +436,12 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
-    // Group-1 32-bit immediate arithmetic: ADD, SUB, XOR, and CMP.
-    // Results written to a 32-bit register zero-extend into the full GPR.
-    if (!rex_w && (opcode == 0x81 || opcode == 0x83)) {
+    // Group-1 immediate arithmetic: ADD, OR, AND, SUB, XOR, and CMP.
+    // Supports imm32 (81) and sign-extended imm8 (83), with register or memory destinations.
+    if (opcode == 0x81 || opcode == 0x83) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
-        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
-
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
         const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
         if (operation != 0 && operation != 1 && operation != 4 &&
             operation != 5 && operation != 6 && operation != 7)
@@ -450,127 +449,85 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
         const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
                                         (rex_b ? 8U : 0U);
-        std::uint32_t rhs = 0;
+        const std::size_t immediate_size = opcode == 0x83 ? 1U : 4U;
+        std::uint64_t address = 0;
+        if (mod != 3 &&
+            !decode_effective_address(state, memory, pc, modrm, rex_b, rex_x,
+                                      immediate_size, address))
+            return StepResult::MemoryFault;
+
+        std::uint32_t raw_immediate = 0;
         if (opcode == 0x83) {
-            std::uint8_t raw_immediate = 0;
-            if (!fetch8(memory, pc, raw_immediate)) return StepResult::MemoryFault;
-            rhs = static_cast<std::uint32_t>(
-                static_cast<std::int32_t>(std::bit_cast<std::int8_t>(raw_immediate)));
+            std::uint8_t raw = 0;
+            if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
+            raw_immediate = static_cast<std::uint32_t>(
+                static_cast<std::int32_t>(std::bit_cast<std::int8_t>(raw)));
         } else {
-            const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
-            if (!raw_immediate) return StepResult::MemoryFault;
-            rhs = *raw_immediate;
+            const auto raw = memory.template fetch_le<std::uint32_t>(pc);
+            if (!raw) return StepResult::MemoryFault;
+            raw_immediate = *raw;
             pc += 4;
         }
-        const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination]);
-        std::uint32_t result = 0;
 
-        switch (operation) {
-        case 0:
-            result = lhs + rhs;
-            update_add_flags32(state, lhs, rhs, result);
-            state.gpr[destination] = result;
-            break;
-        case 1:
-            result = lhs | rhs;
-            update_logic_flags32(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 4:
-            result = lhs & rhs;
-            update_logic_flags32(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 5:
-            result = lhs - rhs;
-            update_sub_flags32(state, lhs, rhs, result);
-            state.gpr[destination] = result;
-            break;
-        case 6:
-            result = lhs ^ rhs;
-            update_logic_flags32(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 7:
-            result = lhs - rhs;
-            update_sub_flags32(state, lhs, rhs, result);
-            break;
-        default:
-            return StepResult::UnsupportedInstruction;
+        if (rex_w) {
+            const std::int64_t signed_immediate = opcode == 0x83
+                ? static_cast<std::int64_t>(std::bit_cast<std::int8_t>(
+                      static_cast<std::uint8_t>(raw_immediate)))
+                : static_cast<std::int64_t>(std::bit_cast<std::int32_t>(raw_immediate));
+            const std::uint64_t rhs = static_cast<std::uint64_t>(signed_immediate);
+            std::uint64_t lhs = 0;
+            if (mod == 3) {
+                lhs = state.gpr[destination];
+            } else {
+                const auto loaded = memory.template read_le<std::uint64_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                lhs = *loaded;
+            }
+            std::uint64_t result = 0;
+            switch (operation) {
+            case 0: result = lhs + rhs; update_add_flags(state, lhs, rhs, result); break;
+            case 1: result = lhs | rhs; update_logic_flags(state, result); break;
+            case 4: result = lhs & rhs; update_logic_flags(state, result); break;
+            case 5: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); break;
+            case 6: result = lhs ^ rhs; update_logic_flags(state, result); break;
+            case 7: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); break;
+            default: return StepResult::UnsupportedInstruction;
+            }
+            if (operation != 7) {
+                if (mod == 3) state.gpr[destination] = result;
+                else if (!memory.template write_le<std::uint64_t>(address, result))
+                    return StepResult::MemoryFault;
+            }
+        } else {
+            const std::uint32_t rhs = raw_immediate;
+            std::uint32_t lhs = 0;
+            if (mod == 3) {
+                lhs = static_cast<std::uint32_t>(state.gpr[destination]);
+            } else {
+                const auto loaded = memory.template read_le<std::uint32_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                lhs = *loaded;
+            }
+            std::uint32_t result = 0;
+            switch (operation) {
+            case 0: result = lhs + rhs; update_add_flags32(state, lhs, rhs, result); break;
+            case 1: result = lhs | rhs; update_logic_flags32(state, result); break;
+            case 4: result = lhs & rhs; update_logic_flags32(state, result); break;
+            case 5: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); break;
+            case 6: result = lhs ^ rhs; update_logic_flags32(state, result); break;
+            case 7: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); break;
+            default: return StepResult::UnsupportedInstruction;
+            }
+            if (operation != 7) {
+                if (mod == 3) state.gpr[destination] = result;
+                else if (!memory.template write_le<std::uint32_t>(address, result))
+                    return StepResult::MemoryFault;
+            }
         }
 
         state.rip = pc;
         return StepResult::Executed;
     }
-
-    // Group-1 64-bit immediate arithmetic: ADD, SUB, XOR, and CMP.
-    // The imm32 operand is sign-extended as required by x86-64.
-    if (rex_w && (opcode == 0x81 || opcode == 0x83)) {
-        std::uint8_t modrm = 0;
-        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
-        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
-
-        const std::uint8_t operation = static_cast<std::uint8_t>((modrm >> 3U) & 7U);
-        if (operation != 0 && operation != 1 && operation != 4 &&
-            operation != 5 && operation != 6 && operation != 7)
-            return StepResult::UnsupportedInstruction;
-
-        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) +
-                                        (rex_b ? 8U : 0U);
-        std::int64_t immediate = 0;
-        if (opcode == 0x83) {
-            std::uint8_t raw_immediate = 0;
-            if (!fetch8(memory, pc, raw_immediate)) return StepResult::MemoryFault;
-            immediate = std::bit_cast<std::int8_t>(raw_immediate);
-        } else {
-            const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
-            if (!raw_immediate) return StepResult::MemoryFault;
-            immediate = std::bit_cast<std::int32_t>(*raw_immediate);
-            pc += 4;
-        }
-        const std::uint64_t lhs = state.gpr[destination];
-        const std::uint64_t rhs = static_cast<std::uint64_t>(immediate);
-        std::uint64_t result = 0;
-
-        switch (operation) {
-        case 0: // ADD
-            result = lhs + rhs;
-            update_add_flags(state, lhs, rhs, result);
-            state.gpr[destination] = result;
-            break;
-        case 1: // OR
-            result = lhs | rhs;
-            update_logic_flags(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 4: // AND
-            result = lhs & rhs;
-            update_logic_flags(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 5: // SUB
-            result = lhs - rhs;
-            update_sub_flags(state, lhs, rhs, result);
-            state.gpr[destination] = result;
-            break;
-        case 6: // XOR
-            result = lhs ^ rhs;
-            update_logic_flags(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 7: // CMP
-            result = lhs - rhs;
-            update_sub_flags(state, lhs, rhs, result);
-            break;
-        default:
-            return StepResult::UnsupportedInstruction;
-        }
-
-        state.rip = pc;
-        return StepResult::Executed;
-    }
-
-
 
     // MOVSXD r32/r64, r/m32.
     if (opcode == 0x63) {

@@ -28,7 +28,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
 - Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
 - Register and memory destination 32-bit/64-bit OR and AND operations, with logical flag updates.
-- Register-direct Group-1 immediate arithmetic using both imm32 and sign-extended imm8 encodings.
+- Group-1 immediate arithmetic using imm32 and sign-extended imm8 encodings, with register and supported memory destinations.
 - 32-bit and 64-bit memory-destination ADD, SUB, XOR, and CMP using base, disp8, disp32, SIB-scaled index, no-base SIB, and RIP-relative addressing.
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - CTest-based tests for memory, CPU state, and supported instructions.
@@ -171,3 +171,8 @@ Added the register-direct CMOVcc family for all 16 x86 condition codes. A true c
 ### v0.39.0 — SETcc memory destinations
 
 Extended SETcc to write byte results to guest memory using base/displacement, SIB, no-base SIB, and RIP-relative addressing. Added a shared checked effective-address decoder for this path. Memory writes use the normal backend, so bounds and virtual-page write permissions are enforced. Tests cover base-plus-disp8 and RIP-relative stores.
+
+
+### v0.40.0 — Group-1 immediate memory operations
+
+Extended Group-1 ADD, OR, AND, SUB, XOR, and CMP immediate operations to memory destinations for both 32-bit and 64-bit operand sizes. Both 0x81 imm32 and 0x83 sign-extended imm8 forms are supported, using base/displacement, SIB, no-base SIB, and RIP-relative effective addresses. RIP-relative calculations account for the trailing immediate bytes. Memory CMP remains non-writing, and stores use checked atomic memory writes. Tests cover 32-bit ADD, 64-bit AND, memory CMP, and RIP-relative imm8 addressing.
