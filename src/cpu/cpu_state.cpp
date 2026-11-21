@@ -23,6 +23,7 @@ void CpuState::reset() noexcept {
     mxcsr_mask = 0x0000ffbf;
     for (auto& reg : st) reg.fill(std::byte{0});
     for (auto& reg : xmm) reg.fill(std::byte{0});
+    for (auto& reg : ymm_high) reg.fill(std::byte{0});
 }
 
 } // namespace meridian::cpu

@@ -47,6 +47,7 @@ struct CpuState {
     std::uint32_t mxcsr_mask{0x0000ffbf};
     std::array<std::array<std::byte, 16>, 8> st{};
     std::array<std::array<std::byte, 16>, 16> xmm{};
+    std::array<std::array<std::byte, 16>, 16> ymm_high{};
 
     void reset() noexcept;
 };

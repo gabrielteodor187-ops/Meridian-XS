@@ -3357,9 +3357,11 @@ void test_xgetbv_xsetbv_xcr0() {
 
     state.rip = 0x31710;
     state.gpr[0] = 7; // AVX state is not yet implemented.
-    require(interpreter.step(state, memory) == StepResult::GeneralProtectionFault &&
-            state.xcr0 == 3,
-            "XSETBV should reject unsupported AVX state until YMM state exists");
+    state.rip = 0x31710;
+    state.gpr[0] = 7;
+    require(interpreter.step(state, memory) == StepResult::Executed &&
+            state.xcr0 == 7,
+            "XSETBV should enable the modeled YMM upper-half state component");
 
     meridian::cpu::CpuState user{};
     user.rip = 0x31710;
@@ -3373,6 +3375,75 @@ void test_xgetbv_xsetbv_xcr0() {
     disabled.rip = 0x31700;
     require(interpreter.step(disabled, memory) == StepResult::UnsupportedInstruction,
             "XGETBV should require CR4.OSXSAVE");
+}
+
+
+void test_xsave_xrstor_ymm_state() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x31800, 0x2000};
+    const std::array<std::byte, 3> xsave{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x20}
+    };
+    const std::array<std::byte, 3> xrstor{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x28}
+    };
+    require(memory.write(0x31800, xsave), "XSAVE instruction should load");
+    require(memory.write(0x31810, xrstor), "XRSTOR instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x31800;
+    state.gpr[0] = 0x31900;
+    state.gpr[1] = 0;
+    state.gpr[2] = 0;
+    state.control_registers[4] = (1ULL << 18U) | (1ULL << 9U);
+    state.xcr0 = 7;
+    state.gpr[0] = 7;
+    state.gpr[2] = 0;
+    // RAX is also the memory base; load the state-area pointer after setting
+    // the XSAVE request mask through the instruction's implicit EDX:EAX mask.
+    // Use RDI as the base register in the instruction stream below instead.
+    const std::array<std::byte, 3> xsave_rdi{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x27}
+    };
+    const std::array<std::byte, 3> xrstor_rdi{
+        std::byte{0x0f}, std::byte{0xae}, std::byte{0x2f}
+    };
+    require(memory.write(0x31820, xsave_rdi), "XSAVE RDI form should load");
+    require(memory.write(0x31830, xrstor_rdi), "XRSTOR RDI form should load");
+    state.gpr[7] = 0x31900;
+    state.gpr[0] = 7;
+    state.gpr[2] = 0;
+    state.mxcsr = 0x1f80;
+    state.x87_control_word = 0x027f;
+    state.xmm[0].fill(std::byte{0x11});
+    state.ymm_high[0].fill(std::byte{0x22});
+    state.st[0].fill(std::byte{0x33});
+    const meridian::cpu::Interpreter interpreter{};
+    state.rip = 0x31820;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "XSAVE should write the extended x87/SSE/YMM state image");
+    require(memory.read_le<std::uint64_t>(0x31b00).value_or(0) == 7,
+            "XSAVE should write XSTATE_BV for enabled state components");
+    std::array<std::byte, 16> saved_ymm{};
+    require(memory.read(0x31b40, saved_ymm) && saved_ymm == state.ymm_high[0],
+            "XSAVE should store YMM upper halves after the legacy header");
+
+    state.xmm[0].fill(std::byte{0});
+    state.ymm_high[0].fill(std::byte{0});
+    state.st[0].fill(std::byte{0});
+    state.x87_control_word = 0x037f;
+    state.rip = 0x31830;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "XRSTOR should restore the extended state image");
+    require(state.x87_control_word == 0x027f &&
+            state.xmm[0][0] == std::byte{0x11} &&
+            state.ymm_high[0][0] == std::byte{0x22} &&
+            state.st[0][0] == std::byte{0x33},
+            "XRSTOR should restore x87, XMM, and YMM upper-half state");
+
+    state.rip = 0x31820;
+    state.gpr[7] = 0x31901;
+    require(interpreter.step(state, memory) == StepResult::GeneralProtectionFault,
+            "XSAVE should require 64-byte aligned memory");
 }
 
 void test_cpu_state_reset() {
@@ -3392,6 +3463,8 @@ void test_cpu_state_reset() {
             "segment selectors should reset");
     require(state.xcr0 == 1,
             "XCR0 should reset with only the x87 state component enabled");
+    require(state.ymm_high[0][0] == std::byte{0},
+            "YMM upper-half state should reset to zero");
     require(state.xmm[3][2] == std::byte{0}, "vector registers should reset");
 }
 } // namespace
@@ -3448,6 +3521,7 @@ int main() {
         test_sse_compare_predicates();
         test_sse_sqrt_min_max_subset();
         test_xgetbv_xsetbv_xcr0();
+        test_xsave_xrstor_ymm_state();
 
         test_cpu_state_reset();
         test_interpreter();

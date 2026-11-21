@@ -851,6 +851,136 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 state.rip = pc;
                 return StepResult::Executed;
             }
+            if (operation == 4U || operation == 5U) { // XSAVE / XRSTOR
+                if ((state.control_registers[4] & (1ULL << 18U)) == 0)
+                    return StepResult::UnsupportedInstruction;
+                if ((address & 0x3fU) != 0)
+                    return StepResult::GeneralProtectionFault;
+                const std::uint64_t request_mask =
+                    (static_cast<std::uint64_t>(
+                        static_cast<std::uint32_t>(state.gpr[2])) << 32U) |
+                    static_cast<std::uint32_t>(state.gpr[0]);
+                if (request_mask != state.xcr0)
+                    return StepResult::UnsupportedInstruction;
+                const std::size_t area_size =
+                    (state.xcr0 & 4ULL) != 0 ? 832U : 576U;
+                std::array<std::byte, 832> area{};
+                const auto put16 = [&](std::size_t offset, std::uint16_t value) {
+                    for (std::size_t i = 0; i < 2; ++i)
+                        area[offset + i] =
+                            static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+                };
+                const auto put32 = [&](std::size_t offset, std::uint32_t value) {
+                    for (std::size_t i = 0; i < 4; ++i)
+                        area[offset + i] =
+                            static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+                };
+                const auto put64 = [&](std::size_t offset, std::uint64_t value) {
+                    for (std::size_t i = 0; i < 8; ++i)
+                        area[offset + i] =
+                            static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+                };
+                const auto get16 = [&](std::size_t offset) {
+                    std::uint16_t value = 0;
+                    for (std::size_t i = 0; i < 2; ++i)
+                        value |= static_cast<std::uint16_t>(
+                            std::to_integer<unsigned char>(area[offset + i])) << (i * 8U);
+                    return value;
+                };
+                const auto get32 = [&](std::size_t offset) {
+                    std::uint32_t value = 0;
+                    for (std::size_t i = 0; i < 4; ++i)
+                        value |= static_cast<std::uint32_t>(
+                            std::to_integer<unsigned char>(area[offset + i])) << (i * 8U);
+                    return value;
+                };
+                const auto get64 = [&](std::size_t offset) {
+                    std::uint64_t value = 0;
+                    for (std::size_t i = 0; i < 8; ++i)
+                        value |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(area[offset + i])) << (i * 8U);
+                    return value;
+                };
+
+                if (operation == 4U) { // XSAVE
+                    put16(0, state.x87_control_word);
+                    put16(2, state.x87_status_word);
+                    area[4] = static_cast<std::byte>(state.x87_tag_word);
+                    put16(6, state.x87_opcode);
+                    put64(8, state.x87_instruction_pointer);
+                    put64(16, state.x87_data_pointer);
+                    if ((state.xcr0 & 2ULL) != 0) {
+                        put32(24, state.mxcsr);
+                        put32(28, state.mxcsr_mask);
+                    }
+                    for (std::size_t i = 0; i < state.st.size(); ++i)
+                        std::copy(state.st[i].begin(), state.st[i].end(),
+                                  area.begin() + 32U + i * 16U);
+                    if ((state.xcr0 & 2ULL) != 0) {
+                        for (std::size_t i = 0; i < state.xmm.size(); ++i)
+                            std::copy(state.xmm[i].begin(), state.xmm[i].end(),
+                                      area.begin() + 160U + i * 16U);
+                    }
+                    put64(512, state.xcr0);
+                    put64(520, 0); // Standard (non-compacted) XSAVE format.
+                    if ((state.xcr0 & 4ULL) != 0) {
+                        for (std::size_t i = 0; i < state.ymm_high.size(); ++i)
+                            std::copy(state.ymm_high[i].begin(), state.ymm_high[i].end(),
+                                      area.begin() + 576U + i * 16U);
+                    }
+                    if (!memory.write(address,
+                            std::span<const std::byte>{area}.first(area_size)))
+                        return StepResult::MemoryFault;
+                } else { // XRSTOR
+                    if (!memory.read(address,
+                            std::span<std::byte>{area}.first(area_size)))
+                        return StepResult::MemoryFault;
+                    const std::uint64_t xstate_bv = get64(512);
+                    const std::uint64_t xcomp_bv = get64(520);
+                    if (xcomp_bv != 0 || (xstate_bv & ~state.xcr0) != 0 ||
+                        (xstate_bv & ~7ULL) != 0)
+                        return StepResult::GeneralProtectionFault;
+                    if ((xstate_bv & 2ULL) != 0 &&
+                        (get32(24) & ~state.mxcsr_mask) != 0)
+                        return StepResult::GeneralProtectionFault;
+
+                    if ((xstate_bv & 1ULL) != 0) {
+                        state.x87_control_word = get16(0);
+                        state.x87_status_word = get16(2);
+                        state.x87_tag_word = std::to_integer<std::uint8_t>(area[4]);
+                        state.x87_opcode = get16(6);
+                        state.x87_instruction_pointer = get64(8);
+                        state.x87_data_pointer = get64(16);
+                        for (std::size_t i = 0; i < state.st.size(); ++i)
+                            std::copy_n(area.begin() + 32U + i * 16U, 16,
+                                        state.st[i].begin());
+                    } else {
+                        state.x87_control_word = 0x037f;
+                        state.x87_status_word = state.x87_opcode = 0;
+                        state.x87_tag_word = 0;
+                        state.x87_instruction_pointer = state.x87_data_pointer = 0;
+                        for (auto& reg : state.st) reg.fill(std::byte{0});
+                    }
+                    if ((xstate_bv & 2ULL) != 0) {
+                        state.mxcsr = get32(24);
+                        for (std::size_t i = 0; i < state.xmm.size(); ++i)
+                            std::copy_n(area.begin() + 160U + i * 16U, 16,
+                                        state.xmm[i].begin());
+                    } else {
+                        state.mxcsr = 0x1f80;
+                        for (auto& reg : state.xmm) reg.fill(std::byte{0});
+                    }
+                    if ((xstate_bv & 4ULL) != 0) {
+                        for (std::size_t i = 0; i < state.ymm_high.size(); ++i)
+                            std::copy_n(area.begin() + 576U + i * 16U, 16,
+                                        state.ymm_high[i].begin());
+                    } else {
+                        for (auto& reg : state.ymm_high) reg.fill(std::byte{0});
+                    }
+                }
+                state.rip = pc;
+                return StepResult::Executed;
+            }
             if (operation != 0U && operation != 1U)
                 return StepResult::UnsupportedInstruction;
             if ((address & 0xfU) != 0)
@@ -948,13 +1078,22 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             constexpr std::uint32_t vendor_edx = 0x6e616964U; // "dian"
             constexpr std::uint32_t vendor_ecx = 0x20205358U; // "XS  "
             if (leaf == 0) {
-                eax = 1;
+                eax = 0x0d;
                 ebx = vendor_ebx;
                 edx = vendor_edx;
                 ecx = vendor_ecx;
             } else if (leaf == 1) {
                 eax = 0x00000600U;
-                edx = (1U << 4U) | (1U << 5U) | (1U << 15U); // TSC, MSR, CMOV
+                ecx = (1U << 26U) |
+                      (((state.control_registers[4] & (1ULL << 18U)) != 0)
+                           ? (1U << 27U) : 0U); // XSAVE, OSXSAVE
+                edx = (1U << 4U) | (1U << 5U) | (1U << 15U) | (1U << 24U); // TSC, MSR, CMOV, FXSR
+            } else if (leaf == 0x0dU) {
+                if (subleaf == 0) {
+                    eax = 0x7U; // x87, SSE, and YMM upper halves.
+                    ebx = (state.xcr0 & 4ULL) != 0 ? 832U : 576U;
+                    ecx = 832U;
+                }
             } else if (leaf == 0x80000000U) {
                 eax = 0x80000001U;
                 ebx = vendor_ebx;
@@ -1060,9 +1199,10 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                     static_cast<std::uint32_t>(state.gpr[0]);
                 // This build models x87 and SSE state only. AVX/YMM state
                 // cannot be enabled until its extended state is implemented.
-                if ((value & 1ULL) == 0 || (value & ~3ULL) != 0 ||
+                if ((value & 1ULL) == 0 || (value & ~7ULL) != 0 ||
                     ((value & 2ULL) != 0 &&
-                     (state.control_registers[4] & (1ULL << 9U)) == 0))
+                     (state.control_registers[4] & (1ULL << 9U)) == 0) ||
+                    ((value & 4ULL) != 0 && (value & 2ULL) == 0))
                     return StepResult::GeneralProtectionFault;
                 state.xcr0 = value;
                 state.rip = pc;

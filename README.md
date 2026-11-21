@@ -38,7 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
-- XGETBV/XSETBV with a modeled XCR0 for x87/SSE state (AVX state remains disabled until YMM state is implemented).
+- XGETBV/XSETBV with XCR0 for x87/SSE/YMM state, plus standard-format XSAVE/XRSTOR support for x87, XMM, and YMM upper halves.
 - FXSAVE/FXRSTOR support for a modeled 512-byte x87/SSE state image (including MXCSR and XMM state), plus LDMXCSR/STMXCSR with MXCSR_MASK validation.
 - Scalar MOVD/MOVQ transfers between GPRs, memory, and XMM registers; MOVUPS/MOVUPD/MOVAPS/MOVAPD packed moves; MOVSS/MOVSD scalar moves with appropriate upper-lane behavior.
 - Legacy CMPPS/CMPPD/CMPSS/CMPSD with all eight immediate predicate forms.
@@ -404,3 +404,8 @@ Added SQRTPS/SQRTPD/SQRTSS/SQRTSD and MIN/MAX packed/scalar single/double forms.
 ### v0.67.0 — XGETBV/XSETBV and XCR0 foundation
 
 Added XGETBV and XSETBV for XCR0 index 0, including CR4.OSXSAVE checks, XSETBV privilege checks, and validation of x87/SSE enable dependencies. XCR0 resets to x87-only and can enable the currently modeled SSE state. AVX/YMM state is explicitly rejected until extended vector-state storage and execution are implemented. Tests cover read/write, privilege, feature gating, and rejection of unavailable AVX state.
+
+
+### v0.68.0 — XSAVE/XRSTOR and YMM upper-half state
+
+Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. AVX instructions themselves are not yet implemented or advertised.
