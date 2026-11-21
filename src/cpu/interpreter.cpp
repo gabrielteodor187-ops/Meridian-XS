@@ -3001,8 +3001,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     }
 
     // ADD/SUB/XOR/CMP between a register and a memory destination.
-    // This initial memory arithmetic subset supports [base], [base+disp8],
-    // and [base+disp32] addressing; SIB and RIP-relative arithmetic follow later.
+    // Supports base, signed displacement, SIB-scaled index, no-base SIB,
+    // and RIP-relative memory operands.
     if (opcode == 0x01 || opcode == 0x09 || opcode == 0x21 ||
         opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
         std::uint8_t modrm = 0;
@@ -3219,138 +3219,7 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
-    // Register-only 32-bit and 64-bit ADD, SUB, XOR, and CMP.
-    // In 64-bit mode, default operand size is 32 bits unless REX.W is set.
-    if (opcode == 0x01 || opcode == 0x09 || opcode == 0x21 ||
-        opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
-        std::uint8_t modrm = 0;
-        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
-        if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
 
-        const std::size_t source = static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
-        const std::size_t destination = static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
-        if (operand_size_override && !rex_w) {
-            const std::uint16_t lhs = static_cast<std::uint16_t>(state.gpr[destination]);
-            const std::uint16_t rhs = static_cast<std::uint16_t>(state.gpr[source]);
-            std::uint16_t result = 0;
-            switch (opcode) {
-            case 0x01:
-                result = static_cast<std::uint16_t>(lhs + rhs);
-                update_add_flags16(state, lhs, rhs, result);
-                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
-                break;
-            case 0x09:
-                result = static_cast<std::uint16_t>(lhs | rhs);
-                update_logic_flags16(state, result);
-                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
-                break;
-            case 0x21:
-                result = static_cast<std::uint16_t>(lhs & rhs);
-                update_logic_flags16(state, result);
-                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
-                break;
-            case 0x29:
-                result = static_cast<std::uint16_t>(lhs - rhs);
-                update_sub_flags16(state, lhs, rhs, result);
-                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
-                break;
-            case 0x31:
-                result = static_cast<std::uint16_t>(lhs ^ rhs);
-                update_logic_flags16(state, result);
-                state.gpr[destination] = (state.gpr[destination] & ~0xffffULL) | result;
-                break;
-            case 0x39:
-                result = static_cast<std::uint16_t>(lhs - rhs);
-                update_sub_flags16(state, lhs, rhs, result);
-                break;
-            default:
-                return StepResult::UnsupportedInstruction;
-            }
-            state.rip = pc;
-            return StepResult::Executed;
-        }
-        if (!rex_w) {
-            const std::uint32_t lhs = static_cast<std::uint32_t>(state.gpr[destination]);
-            const std::uint32_t rhs = static_cast<std::uint32_t>(state.gpr[source]);
-            std::uint32_t result = 0;
-            switch (opcode) {
-            case 0x01:
-                result = lhs + rhs;
-                update_add_flags32(state, lhs, rhs, result);
-                state.gpr[destination] = result;
-                break;
-            case 0x09:
-                result = lhs | rhs;
-                update_logic_flags32(state, result);
-                state.gpr[destination] = result;
-                break;
-            case 0x21:
-                result = lhs & rhs;
-                update_logic_flags32(state, result);
-                state.gpr[destination] = result;
-                break;
-            case 0x29:
-                result = lhs - rhs;
-                update_sub_flags32(state, lhs, rhs, result);
-                state.gpr[destination] = result;
-                break;
-            case 0x31:
-                result = lhs ^ rhs;
-                update_logic_flags32(state, result);
-                state.gpr[destination] = result;
-                break;
-            case 0x39:
-                result = lhs - rhs;
-                update_sub_flags32(state, lhs, rhs, result);
-                break;
-            default:
-                return StepResult::UnsupportedInstruction;
-            }
-            state.rip = pc;
-            return StepResult::Executed;
-        }
-
-        const std::uint64_t lhs = state.gpr[destination];
-        const std::uint64_t rhs = state.gpr[source];
-        std::uint64_t result = 0;
-
-        switch (opcode) {
-        case 0x01:
-            result = lhs + rhs;
-            update_add_flags(state, lhs, rhs, result);
-            state.gpr[destination] = result;
-            break;
-        case 0x09:
-            result = lhs | rhs;
-            update_logic_flags(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 0x21:
-            result = lhs & rhs;
-            update_logic_flags(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 0x29:
-            result = lhs - rhs;
-            update_sub_flags(state, lhs, rhs, result);
-            state.gpr[destination] = result;
-            break;
-        case 0x31:
-            result = lhs ^ rhs;
-            update_logic_flags(state, result);
-            state.gpr[destination] = result;
-            break;
-        case 0x39:
-            result = lhs - rhs;
-            update_sub_flags(state, lhs, rhs, result);
-            break;
-        default:
-            return StepResult::UnsupportedInstruction;
-        }
-
-        state.rip = pc;
-        return StepResult::Executed;
-    }
 
     return StepResult::UnsupportedInstruction;
 }
