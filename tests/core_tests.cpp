@@ -2129,15 +2129,15 @@ void test_cpuid_rdtsc_and_rdtscp() {
     require(interpreter.step(state, memory) == StepResult::Executed,
             "CPUID leaf 0 should execute");
     require(state.gpr[0] == 1 &&
-            state.gpr[1] == 0x6972654dU &&
-            state.gpr[3] == 0x6e616964U &&
-            state.gpr[2] == 0x20205358U,
+            state.gpr[3] == 0x6972654dU &&
+            state.gpr[2] == 0x6e616964U &&
+            state.gpr[1] == 0x20205358U,
             "CPUID leaf 0 should return the Meridian-XS vendor and max leaf");
     require(interpreter.step(state, memory) == StepResult::Executed,
             "MOV EAX,1 should execute");
     require(interpreter.step(state, memory) == StepResult::Executed,
             "CPUID leaf 1 should execute");
-    require((state.gpr[3] & ((1U << 4U) | (1U << 5U) | (1U << 15U))) ==
+    require((state.gpr[2] & ((1U << 4U) | (1U << 5U) | (1U << 15U))) ==
                 ((1U << 4U) | (1U << 5U) | (1U << 15U)),
             "CPUID should advertise the implemented TSC/MSR/CMOV capabilities");
     require(interpreter.step(state, memory) == StepResult::Executed,

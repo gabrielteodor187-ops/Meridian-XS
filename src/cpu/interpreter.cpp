@@ -326,9 +326,9 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             }
             (void)subleaf;
             state.gpr[0] = eax;
-            state.gpr[1] = ebx;
-            state.gpr[2] = ecx;
-            state.gpr[3] = edx;
+            state.gpr[3] = ebx;
+            state.gpr[1] = ecx;
+            state.gpr[2] = edx;
             state.rip = pc;
             return StepResult::Executed;
         }

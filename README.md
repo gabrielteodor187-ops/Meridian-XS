@@ -229,3 +229,8 @@ Added basic 64-bit SYSCALL and SYSRET transitions using EFER.SCE, STAR, LSTAR, S
 ### v0.47.0 — CPUID and timestamp-counter instructions
 
 Added CPUID leaves 0, 1, 0x80000000, and 0x80000001 with a deliberately conservative synthetic Meridian-XS vendor profile. Only currently modeled TSC, MSR, CMOV, long-mode, NX, and SYSCALL capabilities are advertised; SIMD and other unimplemented features are not claimed. Added deterministic RDTSC and RDTSCP counters, including TSC_AUX and CR4.TSD privilege checks. This CPUID profile is not an Xbox/AMD hardware-identification profile.
+
+
+### v0.47.1 — CPUID output-register correction
+
+Corrected CPUID result placement to the architectural EAX/EBX/ECX/EDX register mapping (RAX/RBX/RCX/RDX). Updated vendor-string and feature-bit assertions accordingly.
