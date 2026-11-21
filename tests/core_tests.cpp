@@ -2597,6 +2597,50 @@ void test_sse_sse2_xmm_instructions() {
                 "PAND should perform byte-wise bitwise AND");
 }
 
+
+void test_sse2_packed_integer_arithmetic() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x2c000, 64};
+    const std::array<std::byte, 10> program{
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0xd4}, std::byte{0xc1}, // PADDQ XMM0,XMM1
+        std::byte{0x66}, std::byte{0x0f}, std::byte{0xfb}, std::byte{0xc2}, // PSUBQ XMM0,XMM2
+        std::byte{0xf4}, std::byte{0x90}
+    };
+    require(memory.write(0x2c000, program),
+            "packed integer arithmetic program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x2c000;
+    state.control_registers[4] = 1ULL << 9U;
+    const auto put_qword = [&](std::size_t reg, std::size_t lane,
+                               std::uint64_t value) {
+        for (std::size_t i = 0; i < 8; ++i)
+            state.xmm[reg][lane * 8U + i] =
+                static_cast<std::byte>((value >> (i * 8U)) & 0xffU);
+    };
+    const auto get_qword = [&](std::size_t reg, std::size_t lane) {
+        std::uint64_t value = 0;
+        for (std::size_t i = 0; i < 8; ++i)
+            value |= static_cast<std::uint64_t>(
+                std::to_integer<unsigned char>(state.xmm[reg][lane * 8U + i])) << (i * 8U);
+        return value;
+    };
+    put_qword(0, 0, 10);
+    put_qword(0, 1, 20);
+    put_qword(1, 0, 3);
+    put_qword(1, 1, 4);
+    put_qword(2, 0, 1);
+    put_qword(2, 1, 2);
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "PADDQ should execute");
+    require(get_qword(0, 0) == 13 && get_qword(0, 1) == 24,
+            "PADDQ should add both 64-bit lanes independently");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "PSUBQ should execute");
+    require(get_qword(0, 0) == 12 && get_qword(0, 1) == 22,
+            "PSUBQ should subtract both 64-bit lanes independently");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2655,6 +2699,7 @@ int main() {
         test_xvc_descriptor_region_metadata();
         test_bounded_execution_engine();
         test_sse_sse2_xmm_instructions();
+        test_sse2_packed_integer_arithmetic();
 
         test_cpu_state_reset();
         test_interpreter();

@@ -309,17 +309,23 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
         // Initial 128-bit SSE/SSE2 data movement and logical operations.
+        const bool packed_add_sub =
+            second == 0xfc || second == 0xfd || second == 0xfe || second == 0xd4 ||
+            second == 0xf8 || second == 0xf9 || second == 0xfa || second == 0xfb;
         if (second == 0x6f || second == 0x7f || second == 0xef ||
-            second == 0xdb || second == 0xeb || second == 0x57) {
+            second == 0xdb || second == 0xeb || second == 0x57 || packed_add_sub) {
             const bool is_move = second == 0x6f || second == 0x7f;
             const bool aligned_move = is_move && operand_size_override && !prefix_f3;
             const bool unaligned_move = is_move && prefix_f3 && !operand_size_override;
             const bool bitwise_legacy = !is_move && second == 0x57 &&
                                         !prefix_f3 && !prefix_f2;
-            const bool bitwise_sse2 = !is_move && second != 0x57 &&
+            const bool bitwise_sse2 = !is_move && !packed_add_sub && second != 0x57 &&
                                       operand_size_override && !prefix_f3 && !prefix_f2;
-            if (!(aligned_move || unaligned_move || bitwise_legacy || bitwise_sse2) ||
-                prefix_f2) return StepResult::UnsupportedInstruction;
+            const bool packed_sse2 = packed_add_sub && operand_size_override &&
+                                     !prefix_f3 && !prefix_f2;
+            if (!(aligned_move || unaligned_move || bitwise_legacy ||
+                  bitwise_sse2 || packed_sse2) || prefix_f2)
+                return StepResult::UnsupportedInstruction;
 
             // This first cut requires OSFXSR and rejects CR0.EM/TS rather than
             // pretending to implement the corresponding #UD/#NM exception path.
@@ -356,6 +362,33 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 if (register_operand) state.xmm[rm_index] = state.xmm[reg_index];
                 else if (!memory.write(address, state.xmm[reg_index]))
                     return StepResult::MemoryFault;
+            } else if (packed_add_sub) {
+                const std::size_t lane_size =
+                    (second == 0xfc || second == 0xf8) ? 1U :
+                    (second == 0xfd || second == 0xf9) ? 2U :
+                    (second == 0xfe || second == 0xfa) ? 4U : 8U;
+                const bool is_add =
+                    second == 0xfc || second == 0xfd ||
+                    second == 0xfe || second == 0xd4;
+                for (std::size_t lane = 0; lane < 16; lane += lane_size) {
+                    std::uint64_t lhs = 0;
+                    std::uint64_t rhs = 0;
+                    for (std::size_t byte = 0; byte < lane_size; ++byte) {
+                        lhs |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(state.xmm[reg_index][lane + byte]))
+                            << (byte * 8U);
+                        rhs |= static_cast<std::uint64_t>(
+                            std::to_integer<unsigned char>(source[lane + byte]))
+                            << (byte * 8U);
+                    }
+                    const std::uint64_t mask = lane_size == 8U
+                        ? UINT64_MAX : ((1ULL << (lane_size * 8U)) - 1ULL);
+                    const std::uint64_t result =
+                        (is_add ? lhs + rhs : lhs - rhs) & mask;
+                    for (std::size_t byte = 0; byte < lane_size; ++byte)
+                        state.xmm[reg_index][lane + byte] =
+                            static_cast<std::byte>((result >> (byte * 8U)) & 0xffU);
+                }
             } else {
                 for (std::size_t i = 0; i < source.size(); ++i) {
                     const auto lhs = std::to_integer<unsigned char>(state.xmm[reg_index][i]);

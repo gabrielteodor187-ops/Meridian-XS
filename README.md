@@ -38,7 +38,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, import-table metadata parsing, and an atomic callback-based IAT resolver (not Xbox executable support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - Bounded guest execution engine with an explicit instruction budget and halt/fault/limit outcomes.
-- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS, and XORPD, with OSFXSR gating and MOVDQA alignment checks.
+- Initial 128-bit SSE/SSE2 XMM operations: MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS/XORPD, and packed byte/word/dword/qword ADD/SUB, with OSFXSR gating and MOVDQA alignment checks.
 - CTest-based tests for memory, CPU state, XVD/XVC metadata, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
 
@@ -299,3 +299,8 @@ The end-to-end synthetic PE test now runs the mapped entry point through the bou
 ### v0.55.0 — Initial SSE/SSE2 XMM instruction subset
 
 Added 128-bit XMM register and memory support for MOVDQA/MOVDQU, PXOR, PAND, POR, XORPS, and XORPD. The first cut requires CR4.OSFXSR, rejects CR0.EM/TS rather than modeling their architectural exception delivery, and enforces 16-byte alignment for MOVDQA memory operands. Tests cover XMM register copies, unaligned-capable loads/stores, XOR/AND operations, OSFXSR gating, and alignment faults. This is only a small SIMD subset; no MXCSR, FXSAVE/FXRSTOR, packed arithmetic, SSE3/SSSE3/SSE4, AVX, or AVX2 support is claimed, and CPUID does not advertise these features yet.
+
+
+### v0.56.0 — Packed SSE2 integer arithmetic
+
+Added packed integer addition and subtraction for 8-, 16-, 32-, and 64-bit lanes: PADDB/PADDW/PADDD/PADDQ and PSUBB/PSUBW/PSUBD/PSUBQ. Each lane wraps independently at its element width and leaves integer flags unchanged. Tests verify independent 64-bit lane addition and subtraction. The SIMD backend remains an incomplete SSE/SSE2 subset and is not yet sufficient for commercial game workloads.
