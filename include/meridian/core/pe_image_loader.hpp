@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
 #include <string>
@@ -23,10 +24,12 @@ struct PeImportSymbol {
     std::uint16_t ordinal{0};
     std::uint16_t hint{0};
     bool by_ordinal{false};
+    std::uint32_t iat_rva{0};
 };
 
 struct PeImportModule {
     std::string name;
+    std::uint32_t first_thunk_rva{0};
     std::vector<PeImportSymbol> symbols;
 };
 
@@ -44,9 +47,16 @@ struct LoadedPeImage {
 // resolve imports, execute TLS callbacks, or emulate loader services.
 class PeImageLoader {
 public:
+    using ImportResolver = std::function<std::optional<std::uint64_t>(
+        const std::string&, const PeImportSymbol&)>;
+
     [[nodiscard]] static std::optional<LoadedPeImage> load(
         std::span<const std::byte> file,
         std::uint64_t requested_base = 0);
+
+    // Resolves all imports before patching any IAT slot, so failure is atomic.
+    [[nodiscard]] static bool resolve_imports(LoadedPeImage& image,
+                                               const ImportResolver& resolver);
 };
 
 } // namespace meridian::core

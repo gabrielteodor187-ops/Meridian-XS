@@ -11,6 +11,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <optional>
+#include <string>
 #include <stdexcept>
 
 namespace {
@@ -2249,6 +2251,45 @@ void test_pe32_plus_image_loader() {
 
     const auto loaded = PeImageLoader::load(file, 0x150000000ULL);
     require(loaded.has_value(), "valid PE32+ image should load");
+    require(loaded->imports.size() == 1 &&
+            loaded->imports[0].name == "kernel32.dll" &&
+            loaded->imports[0].symbols.size() == 2 &&
+            loaded->imports[0].symbols[0].name == "ExitProcess" &&
+            loaded->imports[0].symbols[0].hint == 7 &&
+            !loaded->imports[0].symbols[0].by_ordinal &&
+            loaded->imports[0].symbols[1].by_ordinal &&
+            loaded->imports[0].symbols[1].ordinal == 5,
+            "PE loader should parse named and ordinal import metadata");
+    const auto unpatched_image = loaded->image;
+    require(!PeImageLoader::resolve_imports(*loaded,
+                [](const std::string&, const meridian::core::PeImportSymbol& symbol)
+                    -> std::optional<std::uint64_t> {
+                    if (!symbol.by_ordinal) return 0x7fff00001234ULL;
+                    return std::nullopt;
+                }),
+            "missing import should make resolution fail");
+    require(loaded->image == unpatched_image,
+            "failed import resolution must not partially patch the IAT");
+    require(PeImageLoader::resolve_imports(*loaded,
+                [](const std::string& module,
+                   const meridian::core::PeImportSymbol& symbol)
+                    -> std::optional<std::uint64_t> {
+                    if (module != "kernel32.dll") return std::nullopt;
+                    return symbol.by_ordinal ? 0x7fff00005678ULL
+                                             : 0x7fff00001234ULL;
+                }),
+            "complete resolver should bind all imported symbols");
+    const auto image_u64 = [&](std::size_t offset) {
+        std::uint64_t value = 0;
+        for (std::size_t i = 0; i < 8; ++i)
+            value |= static_cast<std::uint64_t>(
+                std::to_integer<unsigned char>(loaded->image[offset + i])) << (i * 8U);
+        return value;
+    };
+    require(image_u64(0x2070) == 0x7fff00001234ULL &&
+            image_u64(0x2078) == 0x7fff00005678ULL,
+            "resolver should patch both named and ordinal IAT slots");
+
     require(loaded->image_base == 0x150000000ULL &&
             loaded->entry_point == 0x150001000ULL,
             "PE loader should apply the requested image base to the entry point");

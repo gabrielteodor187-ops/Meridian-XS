@@ -110,6 +110,7 @@ bool parse_imports(LoadedPeImage& loaded, std::uint32_t import_rva,
         if (!read_image_string(image, name_rva, module.name) ||
             module.name.empty()) return false;
 
+        module.first_thunk_rva = first_thunk;
         const std::uint32_t lookup_rva =
             original_first_thunk != 0 ? original_first_thunk : first_thunk;
         bool thunk_terminated = false;
@@ -127,7 +128,14 @@ bool parse_imports(LoadedPeImage& loaded, std::uint32_t import_rva,
                 break;
             }
 
+            const std::uint64_t iat_slot =
+                static_cast<std::uint64_t>(first_thunk) +
+                thunk_index * sizeof(std::uint64_t);
+            if (iat_slot > std::numeric_limits<std::uint32_t>::max() ||
+                !range_valid(static_cast<std::size_t>(iat_slot), 8, image.size()))
+                return false;
             PeImportSymbol symbol{};
+            symbol.iat_rva = static_cast<std::uint32_t>(iat_slot);
             if ((thunk & (1ULL << 63U)) != 0) {
                 symbol.by_ordinal = true;
                 symbol.ordinal = static_cast<std::uint16_t>(thunk & 0xffffU);
@@ -310,6 +318,27 @@ std::optional<LoadedPeImage> PeImageLoader::load(
 
     if (!parse_imports(loaded, import_rva, import_size)) return std::nullopt;
     return loaded;
+}
+
+
+bool PeImageLoader::resolve_imports(LoadedPeImage& image,
+                                    const ImportResolver& resolver) {
+    if (!resolver || image.image.empty() ||
+        image.image.size() != image.image_size) return false;
+    struct Patch { std::uint32_t rva; std::uint64_t address; };
+    std::vector<Patch> patches;
+    for (const auto& module : image.imports) {
+        for (const auto& symbol : module.symbols) {
+            const auto address = resolver(module.name, symbol);
+            if (!address || !range_valid(symbol.iat_rva, 8, image.image.size()))
+                return false;
+            patches.push_back(Patch{symbol.iat_rva, *address});
+        }
+    }
+    std::span<std::byte> bytes{image.image};
+    for (const auto& patch : patches)
+        write_u64(bytes, patch.rva, patch.address);
+    return true;
 }
 
 } // namespace meridian::core

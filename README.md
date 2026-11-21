@@ -34,7 +34,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Four-level x86-64 page-table walker with 4 KiB and 2 MiB/1 GiB large-page translation, canonical-address checks, and RW/US/NX permission evaluation.
 - CPU interpreter memory backend that fetches, reads, and writes through CR3 page-table translations, enforcing page permissions across page boundaries, with a small software TLB and explicit invalidation.
 - Privileged MOV-to/from-CR0/CR2/CR3/CR4/CR8 register forms, INVLPG, SWAPGS, a limited RDMSR/WRMSR bank, basic SYSCALL/SYSRET transitions, conservative CPUID leaves, RDTSC, and RDTSCP.
-- Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, and import-table metadata parsing (not Xbox XEX package support or import resolution).
+- Minimal standard PE32+ image mapping with AMD64 validation, section mapping, DIR64 base relocations, and import-table metadata parsing and an atomic callback-based IAT resolver (not Xbox XEX package support or built-in OS API emulation).
 - Initial guest image mapper that allocates physical pages, constructs four-level page tables, applies PE section permissions, and maps a writable NX stack.
 - CTest-based tests for memory, CPU state, executable-image parsing, and supported instructions.
 - GitHub Actions build-and-test workflow.
@@ -256,3 +256,8 @@ The PE32+ loader now parses the import directory after mapping and relocation. I
 ### v0.50.1 — Ordinal import regression coverage
 
 Expanded the synthetic PE fixture to include both a named import and an ordinal import. The test now verifies the ordinal flag and ordinal value are preserved by the import parser; removed a placeholder test that did not actually exercise ordinal parsing.
+
+
+### v0.51.0 — Callback-based PE import resolution
+
+Added an import resolver callback that receives each module and named/ordinal symbol. The loader records each IAT slot RVA and resolves all symbols before applying any patches, so a missing symbol leaves the image unchanged. Tests cover successful named/ordinal binding and atomic failure. This is an extension point for a future guest OS/API layer; no Windows or Xbox system libraries are implemented.
