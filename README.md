@@ -367,3 +367,8 @@ Added MOVUPS/MOVUPD and aligned MOVAPS/MOVAPD 128-bit moves, plus MOVSS/MOVSD sc
 ### v0.62.0 — Basic packed and scalar floating-point SIMD arithmetic
 
 Added ADD/SUB/MUL/DIV for packed single/double and scalar single/double forms (PS/PD/SS/SD). Packed operations update all lanes; scalar operations update only the low lane and preserve the remaining destination bits. Tests cover ADDPS, ADDSS, and ADDPD. This initial implementation uses the host's default IEEE floating-point environment; guest MXCSR rounding modes, exception masks/status flags, denormal controls, and precise SIMD exception delivery are not yet modeled.
+
+
+### v0.62.1 — ADDSS test input isolation
+
+Corrected the ADDSS test to use the original left-hand vector rather than the already modified ADDPS result. The test now checks the intended 1.0 + 10.0 scalar case and compares preserved upper lanes against the original destination state.

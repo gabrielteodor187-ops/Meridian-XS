@@ -3056,8 +3056,14 @@ void test_sse_floating_arithmetic_subset() {
     meridian::cpu::CpuState scalar{};
     scalar.rip = 0x31220;
     scalar.control_registers[4] = 1ULL << 9U;
-    scalar.xmm[0] = packed.xmm[0];
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        const auto bits = std::bit_cast<std::uint32_t>(left[lane]);
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            scalar.xmm[0][lane * 4U + byte] =
+                static_cast<std::byte>((bits >> (byte * 8U)) & 0xffU);
+    }
     scalar.xmm[1] = packed.xmm[1];
+    const auto scalar_original = scalar.xmm[0];
     require(interpreter.step(scalar, memory) == StepResult::Executed,
             "ADDSS should execute");
     std::uint32_t scalar_bits = 0;
@@ -3067,7 +3073,7 @@ void test_sse_floating_arithmetic_subset() {
     require(std::bit_cast<float>(scalar_bits) == 11.0F,
             "ADDSS should add only the low single-precision lane");
     require(std::equal(scalar.xmm[0].begin() + 4, scalar.xmm[0].end(),
-                       packed.xmm[0].begin() + 4),
+                       scalar_original.begin() + 4),
             "ADDSS should preserve the upper destination lanes");
 
     const std::array<std::byte, 4> addpd{
