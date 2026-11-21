@@ -269,6 +269,9 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
         return StepResult::Executed;
     }
 
+    const bool pshufd = opcode == 0x70 && vex.pp == 1;
+    const bool shufps = opcode == 0xc6 && vex.pp == 0;
+    const bool shuffle = pshufd || shufps;
     const bool dqa_move = (opcode == 0x6f || opcode == 0x7f) && vex.pp == 1;
     const bool dqu_move = (opcode == 0x6f || opcode == 0x7f) && vex.pp == 2;
     const bool is_move_load = opcode == 0x10 || opcode == 0x28 ||
@@ -296,12 +299,12 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
         } else if (!dqa_move && !dqu_move) {
             return StepResult::UnsupportedInstruction;
         }
-    } else if (!(is_and || is_andn || is_or || is_xor ||
+    } else if (!(shuffle || is_and || is_andn || is_or || is_xor ||
                  is_add || is_sub || is_mul || is_div ||
                  is_integer_arithmetic)) {
         return StepResult::UnsupportedInstruction;
     }
-    if ((is_move_load || is_move_store) && vex.vvvv != 0x0fU)
+    if (((is_move_load || is_move_store) || pshufd) && vex.vvvv != 0x0fU)
         return StepResult::UnsupportedInstruction;
 
     std::uint8_t modrm = 0;
@@ -322,16 +325,70 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                       source2.begin() + 16);
     } else {
         if (!decode_effective_address(state, memory, pc, modrm,
-                                      vex.b, vex.x, 0, address))
+                                      vex.b, vex.x, shuffle ? 1U : 0U, address))
             return StepResult::MemoryFault;
         if (aligned_move && (address & (width - 1U)) != 0)
             return StepResult::GeneralProtectionFault;
-        if (is_move_load || is_and || is_andn || is_or || is_xor ||
+        if (is_move_load || shuffle || is_and || is_andn || is_or || is_xor ||
             is_add || is_sub || is_mul || is_div || is_integer_arithmetic) {
             if (!memory.read(address,
                     std::span<std::byte>{source2}.first(width)))
                 return StepResult::MemoryFault;
         }
+    }
+
+    if (shuffle) {
+        std::uint8_t immediate = 0;
+        if (!fetch8(memory, pc, immediate)) return StepResult::MemoryFault;
+        std::array<std::byte, 32> source1{};
+        if (shufps) {
+            std::copy(state.xmm[vex.vvvv].begin(), state.xmm[vex.vvvv].end(),
+                      source1.begin());
+            if (vex.l)
+                std::copy(state.ymm_high[vex.vvvv].begin(),
+                          state.ymm_high[vex.vvvv].end(), source1.begin() + 16);
+        }
+        std::array<std::byte, 32> result{};
+        const auto read_dword = [](const std::array<std::byte, 32>& value,
+                                   std::size_t offset) {
+            std::uint32_t dword = 0;
+            for (std::size_t byte = 0; byte < 4; ++byte)
+                dword |= static_cast<std::uint32_t>(
+                    std::to_integer<unsigned char>(value[offset + byte]))
+                    << (byte * 8U);
+            return dword;
+        };
+        const auto write_dword = [](std::array<std::byte, 32>& value,
+                                    std::size_t offset, std::uint32_t dword) {
+            for (std::size_t byte = 0; byte < 4; ++byte)
+                value[offset + byte] =
+                    static_cast<std::byte>((dword >> (byte * 8U)) & 0xffU);
+        };
+        for (std::size_t block = 0; block < width; block += 16U) {
+            if (pshufd) {
+                for (std::size_t lane = 0; lane < 4; ++lane) {
+                    const std::size_t selected = (immediate >> (lane * 2U)) & 3U;
+                    write_dword(result, block + lane * 4U,
+                                read_dword(source2, block + selected * 4U));
+                }
+            } else {
+                write_dword(result, block,
+                            read_dword(source1, block + (immediate & 3U) * 4U));
+                write_dword(result, block + 4U,
+                            read_dword(source1, block + ((immediate >> 2U) & 3U) * 4U));
+                write_dword(result, block + 8U,
+                            read_dword(source2, block + ((immediate >> 4U) & 3U) * 4U));
+                write_dword(result, block + 12U,
+                            read_dword(source2, block + ((immediate >> 6U) & 3U) * 4U));
+            }
+        }
+        std::copy_n(result.begin(), 16, state.xmm[destination].begin());
+        if (vex.l)
+            std::copy_n(result.begin() + 16, 16, state.ymm_high[destination].begin());
+        else
+            state.ymm_high[destination].fill(std::byte{0});
+        state.rip = pc;
+        return StepResult::Executed;
     }
 
     if (is_move_load) {

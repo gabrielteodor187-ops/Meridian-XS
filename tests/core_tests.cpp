@@ -3745,6 +3745,76 @@ void test_avx2_vmovdqa_vmovdqu_memory_forms() {
             "VMOVDQA should reject non-32-byte-aligned YMM memory operands");
 }
 
+
+void test_avx2_vpshufd_vshufps() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32400, 0x100};
+    const std::array<std::byte, 6> vpshufd{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x05},
+        std::byte{0x70}, std::byte{0xc1}, std::byte{0x1b}
+    };
+    const std::array<std::byte, 6> vshufps{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x74},
+        std::byte{0xc6}, std::byte{0xc2}, std::byte{0x4e}
+    };
+    require(memory.write(0x32400, vpshufd), "VPSHUFD instruction should load");
+    require(memory.write(0x32410, vshufps), "VSHUFPS instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32400;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    const auto set_dword = [](std::array<std::byte, 16>& target,
+                              std::size_t lane, std::uint32_t value) {
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            target[lane * 4U + byte] =
+                static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);
+    };
+    const auto get_dword = [](const std::array<std::byte, 16>& source,
+                              std::size_t lane) {
+        std::uint32_t value = 0;
+        for (std::size_t byte = 0; byte < 4; ++byte)
+            value |= static_cast<std::uint32_t>(
+                std::to_integer<unsigned char>(source[lane * 4U + byte]))
+                << (byte * 8U);
+        return value;
+    };
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        set_dword(state.xmm[1], lane, static_cast<std::uint32_t>(lane + 1U));
+        set_dword(state.ymm_high[1], lane, static_cast<std::uint32_t>(lane + 5U));
+    }
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPSHUFD.256 should execute");
+    const std::array<std::uint32_t, 4> low_expected{4, 3, 2, 1};
+    const std::array<std::uint32_t, 4> high_expected{8, 7, 6, 5};
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        require(get_dword(state.xmm[0], lane) == low_expected[lane],
+                "VPSHUFD should shuffle the lower 128-bit lane");
+        require(get_dword(state.ymm_high[0], lane) == high_expected[lane],
+                "VPSHUFD should shuffle the upper 128-bit lane independently");
+    }
+
+    state.rip = 0x32410;
+    for (std::size_t lane = 0; lane < 4; ++lane) {
+        set_dword(state.xmm[1], lane, static_cast<std::uint32_t>(10U + lane));
+        set_dword(state.xmm[2], lane, static_cast<std::uint32_t>(20U + lane));
+        set_dword(state.ymm_high[1], lane, static_cast<std::uint32_t>(30U + lane));
+        set_dword(state.ymm_high[2], lane, static_cast<std::uint32_t>(40U + lane));
+    }
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VSHUFPS.256 should execute");
+    require(get_dword(state.xmm[0], 0) == 12 &&
+            get_dword(state.xmm[0], 1) == 13 &&
+            get_dword(state.xmm[0], 2) == 20 &&
+            get_dword(state.xmm[0], 3) == 21,
+            "VSHUFPS should select lanes from both lower source halves");
+    require(get_dword(state.ymm_high[0], 0) == 32 &&
+            get_dword(state.ymm_high[0], 1) == 33 &&
+            get_dword(state.ymm_high[0], 2) == 40 &&
+            get_dword(state.ymm_high[0], 3) == 41,
+            "VSHUFPS should independently shuffle both upper source halves");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3826,6 +3896,7 @@ int main() {
         test_avx_double_and_bitwise_operations();
         test_avx2_packed_integer_operations_subset();
         test_avx2_vmovdqa_vmovdqu_memory_forms();
+        test_avx2_vpshufd_vshufps();
 
         test_cpu_state_reset();
         test_interpreter();
