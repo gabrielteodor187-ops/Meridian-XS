@@ -285,13 +285,14 @@ void test_memory_operand_faults() {
     require(state.rip == 0x9000 && state.gpr[3] == 0xdeadbeef,
             "failed guest load must not change RIP or its destination register");
 
-    const std::array<std::byte, 4> sib_load{
-        std::byte{0x48}, std::byte{0x8b}, std::byte{0x1c}, std::byte{0x24}
+    const std::array<std::byte, 7> rip_relative_load{
+        std::byte{0x48}, std::byte{0x8b}, std::byte{0x1d},
+        std::byte{0x00}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00}
     };
-    require(memory.write(0x9020, sib_load), "SIB test instruction should load");
+    require(memory.write(0x9020, rip_relative_load), "RIP-relative test instruction should load");
     state.rip = 0x9020;
     require(interpreter.step(state, memory) == StepResult::UnsupportedInstruction,
-            "SIB addressing should be reported as unsupported rather than misdecoded");
+            "RIP-relative addressing should remain unsupported rather than misdecoded");
 }
 
 void test_immediate_arithmetic() {
