@@ -155,6 +155,12 @@ void update_logic_flags32(CpuState& state, std::uint32_t result) noexcept {
 }
 
 
+bool canonical_address(std::uint64_t address) noexcept {
+    const std::uint64_t upper = address >> 48U;
+    const bool sign = ((address >> 47U) & 1U) != 0;
+    return sign ? upper == 0xffffU : upper == 0;
+}
+
 bool read_msr(const CpuState& state, std::uint32_t index,
               std::uint64_t& value) noexcept {
     switch (index) {
@@ -291,6 +297,36 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
+        // SYSCALL / SYSRETQ: model the long-mode register and privilege transition.
+        if (second == 0x05) {
+            if ((state.efer & 1ULL) == 0 || !canonical_address(state.lstar))
+                return StepResult::GeneralProtectionFault;
+            state.gpr[1] = pc;       // RCX receives the return RIP.
+            state.gpr[11] = state.rflags; // R11 receives the saved flags.
+            state.rflags &= ~state.sfmask;
+            state.rflags |= 0x2;
+            const std::uint16_t kernel_cs =
+                static_cast<std::uint16_t>((state.star >> 32U) & 0xfffcU);
+            state.cs = kernel_cs;
+            state.ss = static_cast<std::uint16_t>(kernel_cs + 8U);
+            state.cpl = 0;
+            state.rip = state.lstar;
+            return StepResult::Executed;
+        }
+        if (second == 0x07) {
+            if (state.cpl != 0 || (state.efer & 1ULL) == 0 ||
+                !canonical_address(state.gpr[1]))
+                return StepResult::GeneralProtectionFault;
+            const std::uint16_t user_base =
+                static_cast<std::uint16_t>((state.star >> 48U) & 0xfffcU);
+            state.cs = static_cast<std::uint16_t>((user_base + 16U) | 3U);
+            state.ss = static_cast<std::uint16_t>((user_base + 8U) | 3U);
+            state.cpl = 3;
+            state.rip = state.gpr[1];
+            state.rflags = state.gpr[11] | 0x2;
+            return StepResult::Executed;
+        }
+
         // RDMSR / WRMSR. Only the explicitly modeled MSR set is implemented.
         if (second == 0x30 || second == 0x32) {
             if (state.cpl != 0) return StepResult::PrivilegeFault;
@@ -316,6 +352,12 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         if (second == 0x01) {
             std::uint8_t modrm = 0;
             if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+            if (modrm == 0xf8) { // SWAPGS
+                if (state.cpl != 0) return StepResult::PrivilegeFault;
+                std::swap(state.gs_base, state.kernel_gs_base);
+                state.rip = pc;
+                return StepResult::Executed;
+            }
             if (((modrm >> 3U) & 7U) != 7U || (modrm >> 6U) == 3U)
                 return StepResult::UnsupportedInstruction;
             if (state.cpl != 0) return StepResult::PrivilegeFault;

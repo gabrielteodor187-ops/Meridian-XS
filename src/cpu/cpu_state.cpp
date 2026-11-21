@@ -12,6 +12,7 @@ void CpuState::reset() noexcept {
     fs_base = gs_base = kernel_gs_base = 0;
     apic_base = tsc_aux = tsc = 0;
     sysenter_cs = sysenter_esp = sysenter_eip = 0;
+    cs = ss = ds = es = fs = gs = 0;
     cpl = 0;
     for (auto& reg : xmm) reg.fill(std::byte{0});
 }

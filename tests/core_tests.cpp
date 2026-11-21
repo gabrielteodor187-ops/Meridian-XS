@@ -2034,6 +2034,76 @@ void test_rdmsr_wrmsr_and_privilege() {
             "RDMSR should be rejected outside ring zero");
 }
 
+
+void test_syscall_sysret_and_swapgs() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x26000, 0x200};
+    const std::array<std::byte, 3> user_code{
+        std::byte{0x0f}, std::byte{0x05}, std::byte{0xf4}
+    };
+    const std::array<std::byte, 2> kernel_code{
+        std::byte{0x0f}, std::byte{0x07}
+    };
+    require(memory.write(0x26000, user_code), "SYSCALL user code should load");
+    require(memory.write(0x26010, kernel_code), "SYSRET kernel code should load");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x26000;
+    state.cpl = 3;
+    state.cs = 0x23;
+    state.ss = 0x1b;
+    state.efer = 1ULL; // EFER.SCE
+    state.star = (0x10ULL << 48U) | (0x08ULL << 32U);
+    state.lstar = 0x26010;
+    state.sfmask = 1ULL; // Mask CF on entry.
+    state.rflags = 0x2 | (1ULL << 9U) | 1ULL;
+    const std::uint64_t original_flags = state.rflags;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SYSCALL should enter the configured kernel target");
+    require(state.rip == 0x26010 && state.cpl == 0,
+            "SYSCALL should load LSTAR and enter CPL0");
+    require(state.gpr[1] == 0x26002 && state.gpr[11] == original_flags,
+            "SYSCALL should save return RIP in RCX and RFLAGS in R11");
+    require((state.rflags & 1ULL) == 0,
+            "SYSCALL should mask flags using SFMASK");
+    require(state.cs == 0x08 && state.ss == 0x10,
+            "SYSCALL should load the kernel code/data selectors");
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "SYSRET should return to the saved user context");
+    require(state.rip == 0x26002 && state.cpl == 3,
+            "SYSRET should restore the user RIP and CPL3");
+    require(state.cs == 0x23 && state.ss == 0x1b,
+            "SYSRET should construct the user selectors from STAR");
+    require(state.rflags == original_flags,
+            "SYSRET should restore user flags from R11");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "user return address should reach HLT");
+
+    const std::array<std::byte, 4> swapgs_code{
+        std::byte{0x0f}, std::byte{0x01}, std::byte{0xf8}, std::byte{0xf4}
+    };
+    require(memory.write(0x26100, swapgs_code), "SWAPGS code should load");
+    meridian::cpu::CpuState kernel_state{};
+    kernel_state.rip = 0x26100;
+    kernel_state.cpl = 0;
+    kernel_state.gs_base = 0x11110000;
+    kernel_state.kernel_gs_base = 0x22220000;
+    require(interpreter.step(kernel_state, memory) == StepResult::Executed,
+            "SWAPGS should execute at CPL0");
+    require(kernel_state.gs_base == 0x22220000 &&
+            kernel_state.kernel_gs_base == 0x11110000,
+            "SWAPGS should exchange GS_BASE and KERNEL_GS_BASE");
+
+    meridian::cpu::CpuState user_swapgs{};
+    user_swapgs.rip = 0x26100;
+    user_swapgs.cpl = 3;
+    require(interpreter.step(user_swapgs, memory) == StepResult::PrivilegeFault,
+            "SWAPGS should be privileged");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -2047,6 +2117,8 @@ void test_cpu_state_reset() {
             "control registers, EFER, and CPL should reset");
     require(state.star == 0 && state.lstar == 0 && state.fs_base == 0 && state.tsc == 0,
             "modeled MSR state should reset");
+    require(state.cs == 0 && state.ss == 0 && state.gs == 0,
+            "segment selectors should reset");
     require(state.xmm[3][2] == std::byte{0}, "vector registers should reset");
 }
 } // namespace
@@ -2083,6 +2155,7 @@ int main() {
         test_interpreter_through_x64_page_tables();
         test_control_register_moves_and_invlpg();
         test_rdmsr_wrmsr_and_privilege();
+        test_syscall_sysret_and_swapgs();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

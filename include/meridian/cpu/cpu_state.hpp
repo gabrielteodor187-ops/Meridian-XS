@@ -29,6 +29,12 @@ struct CpuState {
     std::uint64_t sysenter_cs{0};
     std::uint64_t sysenter_esp{0};
     std::uint64_t sysenter_eip{0};
+    std::uint16_t cs{0};
+    std::uint16_t ss{0};
+    std::uint16_t ds{0};
+    std::uint16_t es{0};
+    std::uint16_t fs{0};
+    std::uint16_t gs{0};
     std::uint8_t cpl{0};
     std::array<std::array<std::byte, 16>, 16> xmm{};
 
