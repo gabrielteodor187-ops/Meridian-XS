@@ -72,3 +72,8 @@ Added the REX.W register-to-register form of MOVSXD, including REX.R/REX.B exten
 ### v0.23.0 — MOVZX register forms
 
 Added register-only MOVZX from 8-bit and 16-bit sources to 32-bit or 64-bit destinations. The implementation handles legacy AH/CH/DH/BH byte-register encodings when no REX prefix is present, and SPL/BPL/SIL/DIL plus extended byte registers when REX is present. Memory-source MOVZX remains unsupported.
+
+
+### v0.24.0 — MOVSX register forms
+
+Added register-only MOVSX from signed 8-bit and 16-bit sources to 32-bit or 64-bit destinations. It shares the correct legacy high-byte versus REX byte-register selection with MOVZX, and tests signed byte/word extension, 32-bit zero-extension, and extended registers. Memory-source MOVSX remains unsupported.

@@ -161,7 +161,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     if (opcode == 0x0f) {
         std::uint8_t second = 0;
         if (!fetch8(memory, pc, second)) return StepResult::MemoryFault;
-        if (second == 0xb6 || second == 0xb7) {
+        if (second == 0xb6 || second == 0xb7 ||
+            second == 0xbe || second == 0xbf) {
             std::uint8_t modrm = 0;
             if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
             if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;
@@ -169,8 +170,10 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 static_cast<std::size_t>((modrm >> 3U) & 7U) + (rex_r ? 8U : 0U);
             const std::size_t source =
                 static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+            const bool word_source = second == 0xb7 || second == 0xbf;
+            const bool sign_extend = second == 0xbe || second == 0xbf;
             std::uint64_t value = 0;
-            if (second == 0xb7) {
+            if (word_source) {
                 value = static_cast<std::uint16_t>(state.gpr[source]);
             } else if (rex_present) {
                 value = static_cast<std::uint8_t>(state.gpr[source]);
@@ -179,6 +182,12 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 value = low >= 4
                     ? static_cast<std::uint8_t>(state.gpr[low - 4U] >> 8U)
                     : static_cast<std::uint8_t>(state.gpr[source]);
+            }
+            if (sign_extend) {
+                const std::int64_t signed_value = word_source
+                    ? static_cast<std::int16_t>(static_cast<std::uint16_t>(value))
+                    : static_cast<std::int8_t>(static_cast<std::uint8_t>(value));
+                value = static_cast<std::uint64_t>(signed_value);
             }
             state.gpr[destination] = rex_w ? value : static_cast<std::uint32_t>(value);
             state.rip = pc;

@@ -1035,6 +1035,41 @@ void test_movzx_registers() {
             "MOVZX test program should reach HLT");
 }
 
+
+void test_movsx_registers() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x15000, 16};
+    const std::array<std::byte, 13> program{
+        // MOVSX RAX, CL; MOVSX R9, R8W; MOVSX EAX, SPL; HLT.
+        std::byte{0x48}, std::byte{0x0f}, std::byte{0xbe}, std::byte{0xc1},
+        std::byte{0x4d}, std::byte{0x0f}, std::byte{0xbf}, std::byte{0xc8},
+        std::byte{0x40}, std::byte{0x0f}, std::byte{0xbe}, std::byte{0xc4},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x15000, program), "MOVSX program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x15000;
+    state.gpr[1] = 0x123456789abc0080ULL;
+    state.gpr[8] = 0xfeedfacecafebeefULL;
+    state.gpr[4] = 0x1122334455660080ULL;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSX byte to 64-bit register should execute");
+    require(state.gpr[0] == 0xffffffffffffff80ULL,
+            "MOVSX byte should sign-extend into a 64-bit destination");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSX word with extended registers should execute");
+    require(state.gpr[9] == 0xffffffffffffbeefULL,
+            "MOVSX word should sign-extend and honor REX.R/B");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "MOVSX SPL to 32-bit register should execute");
+    require(state.gpr[0] == 0x00000000ffffff80ULL,
+            "32-bit MOVSX should sign-extend to 32 bits then zero-extend the GPR");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "MOVSX test program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1058,6 +1093,7 @@ int main() {
         test_lea_effective_address();
         test_movsxd_registers();
         test_movzx_registers();
+        test_movsx_registers();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
