@@ -4097,14 +4097,14 @@ void test_indirect_call_jump_and_push_group() {
     meridian::cpu::CpuState call_state{};
     call_state.rip = 0x33000;
     call_state.gpr[0] = 0x33010;
-    call_state.gpr[4] = 0x33fff0;
+    call_state.gpr[4] = 0x33ff0;
     require(interpreter.step(call_state, memory) == StepResult::Executed,
             "CALL RAX should execute");
     require(call_state.rip == 0x33010,
             "CALL RAX should branch to the target in RAX");
-    require(call_state.gpr[4] == 0x33ffe8,
+    require(call_state.gpr[4] == 0x33fe8,
             "CALL RAX should decrement RSP by eight bytes");
-    require(memory.read_le<std::uint64_t>(0x33ffe8).value_or(0) == 0x33002,
+    require(memory.read_le<std::uint64_t>(0x33fe8).value_or(0) == 0x33002,
             "CALL RAX should store the correct return address");
     require(interpreter.step(call_state, memory) == StepResult::Halted,
             "indirect CALL target should execute");
@@ -4112,11 +4112,11 @@ void test_indirect_call_jump_and_push_group() {
     meridian::cpu::CpuState memory_call{};
     memory_call.rip = 0x33020;
     memory_call.gpr[0] = 0x33080;
-    memory_call.gpr[4] = 0x33fff0;
+    memory_call.gpr[4] = 0x33ff0;
     require(interpreter.step(memory_call, memory) == StepResult::Executed &&
             memory_call.rip == 0x33030,
             "CALL [RAX] should load its target from guest memory");
-    require(memory.read_le<std::uint64_t>(0x33ffe8).value_or(0) == 0x33022,
+    require(memory.read_le<std::uint64_t>(0x33fe8).value_or(0) == 0x33022,
             "CALL [RAX] should push the decoded next RIP");
 
     meridian::cpu::CpuState jump_state{};
@@ -4129,12 +4129,12 @@ void test_indirect_call_jump_and_push_group() {
     meridian::cpu::CpuState push_state{};
     push_state.rip = 0x33060;
     push_state.gpr[0] = 0x123456789abcdef0ULL;
-    push_state.gpr[4] = 0x33fff0;
+    push_state.gpr[4] = 0x33ff0;
     require(interpreter.step(push_state, memory) == StepResult::Executed &&
             push_state.rip == 0x33062 &&
-            push_state.gpr[4] == 0x33ffe8,
+            push_state.gpr[4] == 0x33fe8,
             "PUSH r/m64 should push the selected operand");
-    require(memory.read_le<std::uint64_t>(0x33ffe8).value_or(0) ==
+    require(memory.read_le<std::uint64_t>(0x33fe8).value_or(0) ==
                 0x123456789abcdef0ULL,
             "PUSH RAX should preserve the full 64-bit value");
 }

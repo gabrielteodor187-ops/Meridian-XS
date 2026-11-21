@@ -484,3 +484,8 @@ Added LEA with supported SIB/base/displacement/RIP-relative effective-address ca
 ### v0.79.1 — MOVSXD build correction and indirect-call diagnostics
 
 Corrected the MOVSXD sign-extension cast to widen the signed 32-bit value with a normal signed conversion. Split the indirect CALL test assertions so a failure identifies whether control transfer, stack movement, or return-address storage is wrong.
+
+
+### v0.79.2 — Indirect-control-flow test stack bounds
+
+Corrected the synthetic indirect CALL/PUSH test stack addresses to lie inside its 4 KiB GuestMemory region. The earlier fixture used an address one hexadecimal digit too high; the instruction implementation was unchanged.
