@@ -4312,6 +4312,51 @@ void test_imul_register_and_immediate_forms() {
             "IMUL EAX,ECX,imm32 should multiply by signed -1");
 }
 
+
+void test_shl_shr_sar_group2() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x33400, 0x100};
+    const std::array<std::byte, 4> shl_imm{
+        std::byte{0x48}, std::byte{0xc1}, std::byte{0xe0}, std::byte{0x01}
+    };
+    const std::array<std::byte, 4> shr_one{
+        std::byte{0x48}, std::byte{0xd1}, std::byte{0xe8}, std::byte{0xf4}
+    };
+    const std::array<std::byte, 4> sar_cl{
+        std::byte{0x48}, std::byte{0xd3}, std::byte{0xf8}, std::byte{0xf4}
+    };
+    require(memory.write(0x33400, shl_imm), "SHL immediate instruction should load");
+    require(memory.write(0x33410, shr_one), "SHR by one instruction should load");
+    require(memory.write(0x33420, sar_cl), "SAR by CL instruction should load");
+    const meridian::cpu::Interpreter interpreter{};
+
+    meridian::cpu::CpuState shl{};
+    shl.rip = 0x33400;
+    shl.gpr[0] = 0x4000000000000001ULL;
+    require(interpreter.step(shl, memory) == StepResult::Executed &&
+            shl.gpr[0] == 0x8000000000000002ULL,
+            "SHL RAX,1 should shift all 64 bits");
+    require((shl.rflags & (1ULL << 11U)) != 0,
+            "SHL by one should set OF when the sign bit changes");
+
+    meridian::cpu::CpuState shr{};
+    shr.rip = 0x33410;
+    shr.gpr[0] = 0x8000000000000001ULL;
+    require(interpreter.step(shr, memory) == StepResult::Executed &&
+            shr.gpr[0] == 0x4000000000000000ULL,
+            "SHR RAX,1 should shift in zeros");
+    require((shr.rflags & 1ULL) != 0 && (shr.rflags & (1ULL << 11U)) != 0,
+            "SHR by one should set CF from bit zero and OF from the original sign bit");
+
+    meridian::cpu::CpuState sar{};
+    sar.rip = 0x33420;
+    sar.gpr[0] = 0x8000000000000000ULL;
+    sar.gpr[1] = 4;
+    require(interpreter.step(sar, memory) == StepResult::Executed &&
+            sar.gpr[0] == 0xf800000000000000ULL,
+            "SAR RAX,CL should replicate the sign bit");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -4403,6 +4448,7 @@ int main() {
         test_lea_and_movsxd_addressing();
         test_movzx_movsx_byte_word_sources();
         test_imul_register_and_immediate_forms();
+        test_shl_shr_sar_group2();
 
         test_cpu_state_reset();
         test_interpreter();

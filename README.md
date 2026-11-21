@@ -18,7 +18,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - Basic arithmetic status flags: carry, parity, auxiliary carry, zero, sign, and overflow.
 - 64-bit PUSH/POP for general-purpose registers, including REX.B register extension.
 - Near relative CALL and RET with checked guest-stack access; indirect register/memory CALL and JMP plus FF-group PUSH r/m64.
-- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation, MOVSXD r64,r/m32, MOVZX/MOVSX byte/word source forms, and signed two-/three-operand IMUL forms.
+- 64-bit MOV register loads/stores using register-indirect base plus signed 8-bit or 32-bit displacement; LEA effective-address calculation, MOVSXD r64,r/m32, MOVZX/MOVSX byte/word source forms, and signed two-/three-operand IMUL forms; SHL/SHR/SAR group-2 shifts with immediate, one, and CL counts.
 - REX.R/REX.B extension for memory MOV register and base selection.
 - Register-only 64-bit ADD, SUB, XOR, and CMP using sign-extended imm32 operands.
 - SIB memory addressing with base, scaled index, optional no-base disp32, and REX.X/REX.B extensions.
@@ -504,3 +504,8 @@ Added two-operand IMUL r16/32/64,r/m and immediate IMUL forms using imm8 or imm1
 ### v0.81.1 — IMUL immediate fetch and signed conversion
 
 Replaced the unavailable generic immediate-fetch helper with explicit execute-permission byte fetches for 16-/32-bit immediates. Used bit-preserving conversions for signed immediate and operand interpretation, avoiding implementation-defined narrowing conversions.
+
+
+### v0.82.0 — SHL/SHR/SAR group-2 shifts
+
+Added 16-/32-/64-bit SHL, SHR, and SAR with immediate, implicit-one, and CL-supplied counts. Register and memory destinations are supported; count masking, CF, OF for one-bit shifts, and SF/ZF/PF updates are modeled. Other group-2 rotate operations remain unsupported. Tests cover 64-bit shifts, arithmetic sign propagation, and one-bit flag behavior.

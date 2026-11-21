@@ -915,6 +915,113 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+    // SHL/SHR/SAR group-2 shifts with immediate, one, or CL counts.
+    if (opcode == 0xc1 || opcode == 0xd1 || opcode == 0xd3) {
+        if (prefix_f3 || prefix_f2) return StepResult::UnsupportedInstruction;
+        const std::size_t width = rex_w ? 8U : (operand_size_override ? 2U : 4U);
+        const unsigned bits = static_cast<unsigned>(width * 8U);
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t operation =
+            static_cast<std::uint8_t>((modrm >> 3U) & 7U);
+        if (operation != 4U && operation != 5U && operation != 7U)
+            return StepResult::UnsupportedInstruction;
+        std::uint8_t raw_count = 1;
+        if (opcode == 0xc1) {
+            if (!fetch8(memory, pc, raw_count)) return StepResult::MemoryFault;
+        } else if (opcode == 0xd3) {
+            raw_count = static_cast<std::uint8_t>(state.gpr[1]);
+        }
+        const unsigned count = raw_count & (width == 8U ? 0x3fU : 0x1fU);
+        const std::uint64_t mask = width == 8U ? UINT64_MAX :
+            width == 4U ? 0xffffffffULL : 0xffffULL;
+        std::uint64_t value = 0;
+        std::uint64_t address = 0;
+        const bool register_operand = (modrm >> 6U) == 3U;
+        const std::size_t target_register =
+            static_cast<std::size_t>(modrm & 7U) + (rex_b ? 8U : 0U);
+        if (register_operand) {
+            value = state.gpr[target_register] & mask;
+        } else {
+            if (!decode_effective_address(state, memory, pc, modrm,
+                                          rex_b, rex_x, 0, address))
+                return StepResult::MemoryFault;
+            if (width == 2U) {
+                const auto loaded = memory.template read_le<std::uint16_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                value = *loaded;
+            } else if (width == 4U) {
+                const auto loaded = memory.template read_le<std::uint32_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                value = *loaded;
+            } else {
+                const auto loaded = memory.template read_le<std::uint64_t>(address);
+                if (!loaded) return StepResult::MemoryFault;
+                value = *loaded;
+            }
+        }
+        if (count == 0) {
+            state.rip = pc;
+            return StepResult::Executed;
+        }
+        const bool sign = ((value >> (bits - 1U)) & 1ULL) != 0;
+        std::uint64_t result = 0;
+        bool carry = false;
+        if (operation == 4U) { // SHL/SAL
+            if (count <= bits) carry = ((value >> (bits - count)) & 1ULL) != 0;
+            if (count < bits) result = (value << count) & mask;
+        } else if (operation == 5U) { // SHR
+            if (count <= bits) carry = ((value >> (count - 1U)) & 1ULL) != 0;
+            if (count < bits) result = value >> count;
+        } else { // SAR
+            carry = count <= bits
+                ? ((value >> (count - 1U)) & 1ULL) != 0 : sign;
+            if (count >= bits) {
+                result = sign ? mask : 0;
+            } else {
+                result = value >> count;
+                if (sign) result |= mask ^ (mask >> count);
+            }
+        }
+        result &= mask;
+        if (register_operand) {
+            if (width == 8U) state.gpr[target_register] = result;
+            else if (width == 4U)
+                state.gpr[target_register] = static_cast<std::uint32_t>(result);
+            else
+                state.gpr[target_register] =
+                    (state.gpr[target_register] & ~0xffffULL) | result;
+        } else {
+            bool written = false;
+            if (width == 2U)
+                written = memory.template write_le<std::uint16_t>(
+                    address, static_cast<std::uint16_t>(result));
+            else if (width == 4U)
+                written = memory.template write_le<std::uint32_t>(
+                    address, static_cast<std::uint32_t>(result));
+            else
+                written = memory.template write_le<std::uint64_t>(address, result);
+            if (!written) return StepResult::MemoryFault;
+        }
+        state.rflags &= ~(flag_cf | flag_zf | flag_sf | flag_pf);
+        if (carry) state.rflags |= flag_cf;
+        if (result == 0) state.rflags |= flag_zf;
+        if (((result >> (bits - 1U)) & 1ULL) != 0) state.rflags |= flag_sf;
+        if ((std::popcount(static_cast<unsigned int>(result & 0xffU)) & 1) == 0)
+            state.rflags |= flag_pf;
+        if (count == 1U) {
+            state.rflags &= ~flag_of;
+            bool overflow = false;
+            if (operation == 4U)
+                overflow = (((result >> (bits - 1U)) & 1ULL) != 0) != carry;
+            else if (operation == 5U)
+                overflow = sign;
+            if (overflow) state.rflags |= flag_of;
+        }
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // Two/three-operand IMUL with signed immediate operands.
     if (opcode == 0x69 || opcode == 0x6b) {
         if (prefix_f3 || prefix_f2) return StepResult::UnsupportedInstruction;
