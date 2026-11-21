@@ -919,6 +919,48 @@ void test_interpreter_virtual_address_space() {
             "rejected CPU store must not modify backing memory");
 }
 
+
+void test_lea_effective_address() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x12000, 0x100};
+    const std::array<std::byte, 19> program{
+        // LEA RAX, [RDI + RCX*4 + 8].
+        std::byte{0x48}, std::byte{0x8d}, std::byte{0x44},
+        std::byte{0x8f}, std::byte{0x08},
+        // LEA R8D, [RIP + 0x10] (REX.R selects R8; result zero-extends).
+        std::byte{0x44}, std::byte{0x8d}, std::byte{0x05},
+        std::byte{0x10}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        // LEA R9, [R12 + R13*2 - 4] (REX.R/X/B).
+        std::byte{0x4f}, std::byte{0x8d}, std::byte{0x4c},
+        std::byte{0x6c}, std::byte{0xfc},
+        std::byte{0xf4}, std::byte{0x90}
+    };
+    require(memory.write(0x12000, program), "LEA program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x12000;
+    state.gpr[7] = 0x1000;
+    state.gpr[1] = 3;
+    state.gpr[8] = 0xaaaaaaaaaaaaaaaaULL;
+    state.gpr[12] = 0x2000;
+    state.gpr[13] = 5;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit LEA with SIB addressing should execute");
+    require(state.gpr[0] == 0x1014,
+            "LEA should calculate base plus scaled index plus displacement");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit RIP-relative LEA should execute");
+    require(state.gpr[8] == 0x1201c,
+            "32-bit LEA should calculate RIP-relative address and zero-extend");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "extended-register LEA should execute");
+    require(state.gpr[9] == 0x2006,
+            "REX.R/X/B should select extended LEA destination, index, and base");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "LEA test program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -939,6 +981,7 @@ int main() {
         test_virtual_address_protection_changes();
         test_virtual_address_typed_access();
         test_interpreter_virtual_address_space();
+        test_lea_effective_address();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();

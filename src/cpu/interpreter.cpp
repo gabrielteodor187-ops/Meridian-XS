@@ -306,6 +306,70 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
         return StepResult::Executed;
     }
 
+
+    // LEA r32/r64, m: calculate the effective address without reading memory.
+    if (opcode == 0x8d) {
+        std::uint8_t modrm = 0;
+        if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
+        const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
+        if (mod == 3) return StepResult::UnsupportedInstruction;
+
+        const std::size_t destination = static_cast<std::size_t>((modrm >> 3U) & 7U) +
+                                        (rex_r ? 8U : 0U);
+        const std::uint8_t rm_low = static_cast<std::uint8_t>(modrm & 7U);
+        std::uint64_t base_value = 0;
+        std::uint64_t index_value = 0;
+        unsigned scale_shift = 0;
+        bool has_base = true;
+        bool rip_relative = false;
+
+        if (rm_low == 4) {
+            std::uint8_t sib = 0;
+            if (!fetch8(memory, pc, sib)) return StepResult::MemoryFault;
+            scale_shift = static_cast<unsigned>(sib >> 6U);
+            const std::uint8_t index_low = static_cast<std::uint8_t>((sib >> 3U) & 7U);
+            const std::uint8_t base_low = static_cast<std::uint8_t>(sib & 7U);
+            if (index_low != 4 || rex_x) {
+                const std::size_t index_reg = static_cast<std::size_t>(index_low) +
+                                              (rex_x ? 8U : 0U);
+                index_value = state.gpr[index_reg];
+            }
+            if (mod == 0 && base_low == 5) {
+                has_base = false;
+            } else {
+                const std::size_t base_reg = static_cast<std::size_t>(base_low) +
+                                             (rex_b ? 8U : 0U);
+                base_value = state.gpr[base_reg];
+            }
+        } else if (mod == 0 && rm_low == 5) {
+            rip_relative = true;
+        } else {
+            const std::size_t base_reg = static_cast<std::size_t>(rm_low) +
+                                         (rex_b ? 8U : 0U);
+            base_value = state.gpr[base_reg];
+        }
+
+        std::int64_t displacement = 0;
+        if (mod == 1) {
+            std::uint8_t raw = 0;
+            if (!fetch8(memory, pc, raw)) return StepResult::MemoryFault;
+            displacement = std::bit_cast<std::int8_t>(raw);
+        } else if (mod == 2 || (mod == 0 && (!has_base || rip_relative))) {
+            const auto raw = memory.template fetch_le<std::uint32_t>(pc);
+            if (!raw) return StepResult::MemoryFault;
+            displacement = std::bit_cast<std::int32_t>(*raw);
+            pc += 4;
+        }
+
+        const std::uint64_t effective_address =
+            (rip_relative ? pc : (has_base ? base_value : 0)) +
+            (index_value << scale_shift) + static_cast<std::uint64_t>(displacement);
+        state.gpr[destination] = rex_w ? effective_address
+            : static_cast<std::uint32_t>(effective_address);
+        state.rip = pc;
+        return StepResult::Executed;
+    }
+
     // 32-bit and 64-bit MOV between registers and supported memory operands.
     // Supports base/displacement, SIB, and RIP-relative forms.
     if (opcode == 0x8b || opcode == 0x89) {

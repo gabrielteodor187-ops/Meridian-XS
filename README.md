@@ -57,3 +57,8 @@ All implementation is intended to be original code based on public information. 
 ### v0.20.0 — CPU virtual-address-space execution
 
 The interpreter can now execute against either the original bounded guest-memory region or the page-based virtual address space. Instruction bytes and immediates use execute-checked fetches; data loads, stores, and stack operations use read/write-checked accesses. Automated tests cover execution from read/execute pages, data access, denied instruction fetches, and denied writes. This remains a small x86-64 instruction subset and is not full Xbox virtual-memory or hardware emulation.
+
+
+### v0.21.0 — LEA effective-address calculation
+
+Added 32-bit and 64-bit LEA for the supported ModRM/SIB addressing forms, including base-plus-index scaling, signed displacements, RIP-relative addressing, and REX.R/X/B extended registers. LEA computes an address without reading guest memory. Automated tests cover SIB, RIP-relative, and extended-register cases. The instruction decoder remains intentionally incomplete.
