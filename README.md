@@ -87,3 +87,8 @@ Added the register-direct C7 /0 forms: 32-bit destinations receive imm32 with ze
 ### v0.26.0 — C7 immediate MOV memory forms
 
 Extended C7 /0 to memory destinations, including base-plus-displacement and SIB scaled-index addressing. Both 32-bit imm32 stores and 64-bit sign-extended imm32 stores are supported. Instruction immediates are fetched through the execute path and data writes use normal guest-memory permissions/bounds checks. RIP-relative and full x86 addressing coverage remain incomplete for this opcode.
+
+
+### v0.27.0 — RIP-relative C7 immediate MOV
+
+Added RIP-relative addressing for C7 memory destinations. The effective address is calculated from the instruction pointer after the complete instruction, including both displacement and immediate fields. An automated test verifies the exact target address and stored value.

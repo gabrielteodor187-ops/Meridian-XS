@@ -491,12 +491,14 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
             displacement = std::bit_cast<std::int32_t>(*raw);
             pc += 4;
         }
-        const std::uint64_t address =
-            (rip_relative ? pc : (has_base ? base_value : 0)) +
-            (index_value << scale_shift) + static_cast<std::uint64_t>(displacement);
         const auto raw_immediate = memory.template fetch_le<std::uint32_t>(pc);
         if (!raw_immediate) return StepResult::MemoryFault;
         pc += 4;
+        // RIP-relative addressing is based on the end of the entire instruction,
+        // including the immediate field.
+        const std::uint64_t address =
+            (rip_relative ? pc : (has_base ? base_value : 0)) +
+            (index_value << scale_shift) + static_cast<std::uint64_t>(displacement);
         if (rex_w) {
             const auto immediate = std::bit_cast<std::int32_t>(*raw_immediate);
             const auto value = static_cast<std::uint64_t>(

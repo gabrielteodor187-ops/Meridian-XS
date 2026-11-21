@@ -1141,6 +1141,31 @@ void test_mov_immediate_c7_memory() {
             "faulting C7 memory MOV must not advance RIP");
 }
 
+
+void test_mov_immediate_c7_rip_relative() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x18000, 0x100};
+    const std::array<std::byte, 11> program{
+        // MOV dword [RIP+0x36], 0x87654321; HLT.
+        // RIP after the full instruction is 0x1800a, so the target is 0x18040.
+        std::byte{0xc7}, std::byte{0x05},
+        std::byte{0x36}, std::byte{0x00}, std::byte{0x00}, std::byte{0x00},
+        std::byte{0x21}, std::byte{0x43}, std::byte{0x65}, std::byte{0x87},
+        std::byte{0xf4}
+    };
+    require(memory.write(0x18000, program), "RIP-relative C7 program should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x18000;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "RIP-relative C7 memory MOV should execute");
+    require(memory.read_le<std::uint32_t>(0x18040).value_or(0) == 0x87654321U,
+            "RIP-relative C7 should use the address after the complete instruction");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "RIP-relative C7 program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1167,6 +1192,7 @@ int main() {
         test_movsx_registers();
         test_mov_immediate_group_c7();
         test_mov_immediate_c7_memory();
+        test_mov_immediate_c7_rip_relative();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
