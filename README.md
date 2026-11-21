@@ -72,6 +72,11 @@ This is not a usable Xbox emulator yet. Instruction coverage is tiny; there is n
 All implementation is intended to be original code based on public information. No proprietary SDKs, firmware, keys, or game data are included.
 
 
+### v0.87.0 — 16-bit register arithmetic dispatch fix
+
+Corrected the shared register-direct arithmetic path so operand-size override (0x66) selects 16-bit ADD, OR, AND, SUB, XOR, and CMP operations instead of falling through to 32-bit handling. The destination's upper 48 bits remain unchanged, and CMP remains non-writing. Expanded regression coverage for all six operations. This is a correctness fix within the existing CPU subset, not a compatibility milestone.
+
+
 ### v0.20.0 — CPU virtual-address-space execution
 
 The interpreter can now execute against either the original bounded guest-memory region or the page-based virtual address space. Instruction bytes and immediates use execute-checked fetches; data loads, stores, and stack operations use read/write-checked accesses. Automated tests cover execution from read/execute pages, data access, denied instruction fetches, and denied writes. This remains a small x86-64 instruction subset and is not full Xbox virtual-memory or hardware emulation.
