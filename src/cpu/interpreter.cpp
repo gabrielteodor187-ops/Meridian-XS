@@ -793,7 +793,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
     // ADD/SUB/XOR/CMP between a register and a memory destination.
     // This initial memory arithmetic subset supports [base], [base+disp8],
     // and [base+disp32] addressing; SIB and RIP-relative arithmetic follow later.
-    if (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
+    if (opcode == 0x01 || opcode == 0x09 || opcode == 0x21 ||
+        opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         const std::uint8_t mod = static_cast<std::uint8_t>(modrm >> 6U);
@@ -808,6 +809,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 std::uint64_t result = 0;
                 switch (opcode) {
                 case 0x01: result = lhs + rhs; update_add_flags(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x09: result = lhs | rhs; update_logic_flags(state, result); state.gpr[destination_reg] = result; break;
+                case 0x21: result = lhs & rhs; update_logic_flags(state, result); state.gpr[destination_reg] = result; break;
                 case 0x29: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
                 case 0x31: result = lhs ^ rhs; update_logic_flags(state, result); state.gpr[destination_reg] = result; break;
                 case 0x39: result = lhs - rhs; update_sub_flags(state, lhs, rhs, result); break;
@@ -819,6 +822,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 std::uint32_t result = 0;
                 switch (opcode) {
                 case 0x01: result = lhs + rhs; update_add_flags32(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
+                case 0x09: result = lhs | rhs; update_logic_flags32(state, result); state.gpr[destination_reg] = result; break;
+                case 0x21: result = lhs & rhs; update_logic_flags32(state, result); state.gpr[destination_reg] = result; break;
                 case 0x29: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); state.gpr[destination_reg] = result; break;
                 case 0x31: result = lhs ^ rhs; update_logic_flags32(state, result); state.gpr[destination_reg] = result; break;
                 case 0x39: result = lhs - rhs; update_sub_flags32(state, lhs, rhs, result); break;
@@ -888,6 +893,14 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 result = lhs + rhs;
                 update_add_flags(state, lhs, rhs, result);
                 break;
+            case 0x09:
+                result = lhs | rhs;
+                update_logic_flags(state, result);
+                break;
+            case 0x21:
+                result = lhs & rhs;
+                update_logic_flags(state, result);
+                break;
             case 0x29:
                 result = lhs - rhs;
                 update_sub_flags(state, lhs, rhs, result);
@@ -916,6 +929,14 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
                 result = lhs + rhs;
                 update_add_flags32(state, lhs, rhs, result);
                 break;
+            case 0x09:
+                result = lhs | rhs;
+                update_logic_flags32(state, result);
+                break;
+            case 0x21:
+                result = lhs & rhs;
+                update_logic_flags32(state, result);
+                break;
             case 0x29:
                 result = lhs - rhs;
                 update_sub_flags32(state, lhs, rhs, result);
@@ -940,7 +961,8 @@ StepResult step_impl(CpuState& state, Memory& memory) noexcept {
 
     // Register-only 32-bit and 64-bit ADD, SUB, XOR, and CMP.
     // In 64-bit mode, default operand size is 32 bits unless REX.W is set.
-    if (opcode == 0x01 || opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
+    if (opcode == 0x01 || opcode == 0x09 || opcode == 0x21 ||
+        opcode == 0x29 || opcode == 0x31 || opcode == 0x39) {
         std::uint8_t modrm = 0;
         if (!fetch8(memory, pc, modrm)) return StepResult::MemoryFault;
         if ((modrm & 0xc0U) != 0xc0U) return StepResult::UnsupportedInstruction;

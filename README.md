@@ -25,6 +25,7 @@ An experimental, independently implemented research project exploring Xbox Serie
 - 32-bit register-to-register MOV (both operand directions), including REX.R/REX.B extended registers and zero-extension into 64-bit GPRs.
 - 32-bit MOV loads and stores using supported base/displacement and extended base-register addressing, with zero-extension on loads.
 - Register-only 32-bit and 64-bit TEST instructions with logical flag updates and no operand modification.
+- Register and memory destination 32-bit/64-bit OR and AND operations, with logical flag updates.
 - 32-bit and 64-bit memory-destination ADD, SUB, XOR, and CMP using base, disp8, disp32, SIB-scaled index, no-base SIB, and RIP-relative addressing.
 - Page-granular virtual address space with explicit read/write/execute permissions, cross-page access, mapping, unmapping, atomic range protection changes, and typed little-endian read/write/instruction-fetch helpers.
 - CTest-based tests for memory, CPU state, and supported instructions.
@@ -122,3 +123,8 @@ Added a CPU/virtual-address-space test proving that a memory-source MOVZX faults
 ### v0.33.0 — Immediate AND/OR register operations
 
 Extended the 0x81 immediate arithmetic group with 32-bit and 64-bit register-direct OR and AND operations. Results use the existing logical-flag behavior, clearing CF and OF while updating ZF/SF/PF. Memory-destination forms of these operations are not yet supported.
+
+
+### v0.34.0 — Register and memory OR/AND operations
+
+Added the x86-64 OR r/m, r and AND r/m, r instruction forms for 32-bit and 64-bit operands. Both register-direct and supported memory destinations are handled; memory forms reuse the existing base, SIB, displacement, and RIP-relative address calculation. Logical flags are updated and memory writes go through the checked guest-memory backend. Automated tests cover 32-bit register OR, 64-bit register AND, and 32/64-bit memory destinations.

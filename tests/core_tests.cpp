@@ -1393,6 +1393,57 @@ void test_immediate_and_or_registers() {
             "immediate AND/OR program should reach HLT");
 }
 
+
+void test_register_and_memory_or_and() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x1d000, 0x200};
+    const std::array<std::byte, 14> program{
+        // OR EAX, ECX; AND RDX, RBX; OR dword [RDI], EAX;
+        // AND qword [RDI+8], RCX; HLT.
+        std::byte{0x09}, std::byte{0xc8},
+        std::byte{0x48}, std::byte{0x21}, std::byte{0xda},
+        std::byte{0x09}, std::byte{0x07},
+        std::byte{0x48}, std::byte{0x21}, std::byte{0x4f}, std::byte{0x08},
+        std::byte{0xf4}, std::byte{0x90}, std::byte{0x90}
+    };
+    require(memory.write(0x1d000, program), "register/memory OR/AND program should load");
+    require(memory.write_le<std::uint32_t>(0x1d100, 0x0f0f0000U),
+            "OR memory destination should initialize");
+    require(memory.write_le<std::uint64_t>(0x1d108, 0xffff0000ffff0000ULL),
+            "AND memory destination should initialize");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x1d000;
+    state.gpr[0] = 0x00f0000fU;
+    state.gpr[1] = 0x0000f000U;
+    state.gpr[2] = 0xffffffffffffffffULL;
+    state.gpr[3] = 0x0000ffff0000ffffULL;
+    state.gpr[7] = 0x1d100;
+    const meridian::cpu::Interpreter interpreter{};
+
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit register OR should execute");
+    require(state.gpr[0] == 0x00f0f00fU,
+            "32-bit register OR should produce the expected result");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit register AND should execute");
+    require(state.gpr[2] == 0x0000ffff0000ffffULL,
+            "64-bit register AND should produce the expected result");
+    require((state.rflags & ((1ULL << 0U) | (1ULL << 11U))) == 0,
+            "logical register operations should clear CF and OF");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "32-bit memory OR should execute");
+    require(memory.read_le<std::uint32_t>(0x1d100).value_or(0) == 0x0ff0f00fU,
+            "32-bit memory OR should update the destination");
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "64-bit memory AND should execute");
+    require(memory.read_le<std::uint64_t>(0x1d108).value_or(0) ==
+                0x0000000000000000ULL,
+            "64-bit memory AND should update the destination");
+    require(interpreter.step(state, memory) == StepResult::Halted,
+            "register/memory OR/AND program should reach HLT");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -1426,6 +1477,7 @@ int main() {
         test_movsxd_memory_operands();
         test_movzx_virtual_read_permissions();
         test_immediate_and_or_registers();
+        test_register_and_memory_or_and();
         test_cpu_state_reset();
         test_interpreter();
         test_arithmetic_instructions();
