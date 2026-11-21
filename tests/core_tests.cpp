@@ -3695,6 +3695,56 @@ void test_avx2_packed_integer_operations_subset() {
                 "VPXOR should XOR the upper 128-bit lane");
 }
 
+
+void test_avx2_vmovdqa_vmovdqu_memory_forms() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32300, 0x200};
+    const std::array<std::byte, 5> vmovdqu_load{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x06},
+        std::byte{0x6f}, std::byte{0x00}
+    };
+    const std::array<std::byte, 6> vmovdqu_store{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x06},
+        std::byte{0x7f}, std::byte{0x40}, std::byte{0x20}
+    };
+    const std::array<std::byte, 5> vmovdqa_load{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x05},
+        std::byte{0x6f}, std::byte{0x00}
+    };
+    require(memory.write(0x32300, vmovdqu_load), "VMOVDQU load should load");
+    require(memory.write(0x32310, vmovdqu_store), "VMOVDQU store should load");
+    require(memory.write(0x32320, vmovdqa_load), "VMOVDQA load should load");
+    std::array<std::byte, 32> input{};
+    for (std::size_t i = 0; i < input.size(); ++i)
+        input[i] = static_cast<std::byte>(i + 1U);
+    require(memory.write(0x32380, input), "YMM memory source should load");
+
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32300;
+    state.gpr[0] = 0x32380;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VMOVDQU should load an unaligned-capable 256-bit operand");
+    require(std::equal(state.xmm[0].begin(), state.xmm[0].end(), input.begin()) &&
+            std::equal(state.ymm_high[0].begin(), state.ymm_high[0].end(),
+                       input.begin() + 16),
+            "VMOVDQU should split the 256-bit value across XMM and YMM-high state");
+
+    state.rip = 0x32310;
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VMOVDQU should store a 256-bit register to memory");
+    std::array<std::byte, 32> output{};
+    require(memory.read(0x323a0, output) && output == input,
+            "VMOVDQU store should write all 256 bits");
+
+    state.rip = 0x32320;
+    state.gpr[0] = 0x32381;
+    require(interpreter.step(state, memory) == StepResult::GeneralProtectionFault,
+            "VMOVDQA should reject non-32-byte-aligned YMM memory operands");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3775,6 +3825,7 @@ int main() {
         test_avx_vex_128_256_and_zero_upper();
         test_avx_double_and_bitwise_operations();
         test_avx2_packed_integer_operations_subset();
+        test_avx2_vmovdqa_vmovdqu_memory_forms();
 
         test_cpu_state_reset();
         test_interpreter();

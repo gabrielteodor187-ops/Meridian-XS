@@ -429,3 +429,8 @@ Extended the VEX.0F subset with packed double-precision arithmetic (VADDPD/VSUBP
 ### v0.71.0 — Initial AVX2 packed integer subset
 
 Added VEX.66 integer vector operations for VPADDQ/VPADDD, VPSUBQ/VPSUBD, VPAND/VPOR/VPXOR, and 256-bit YMM lanes. Added VMOVDQA/VMOVDQU encodings to the VEX move decoder with aligned/unaligned memory behavior. Tests cover 256-bit VPADDQ and VPXOR. This is only a small AVX2 subset; CPUID does not yet advertise AVX2.
+
+
+### v0.71.1 — VEX VMOVDQA/VMOVDQU memory forms
+
+Enabled the VEX.66 VMOVDQA and VEX.F3 VMOVDQU 128-/256-bit move encodings, including the F3 mandatory-prefix form, reserved-vvvv validation, and 16-/32-byte alignment checks for aligned memory forms. Added 256-bit memory load/store and alignment tests.

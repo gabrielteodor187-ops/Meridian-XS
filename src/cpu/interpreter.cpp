@@ -248,7 +248,7 @@ struct VexPrefix {
 template <typename Memory>
 StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                        std::uint8_t opcode, const VexPrefix& vex) noexcept {
-    if (vex.map != 1 || vex.w || vex.pp > 1)
+    if (vex.map != 1 || vex.w || vex.pp > 2)
         return StepResult::UnsupportedInstruction;
     if ((state.control_registers[0] & ((1ULL << 2U) | (1ULL << 3U))) != 0 ||
         (state.control_registers[4] & ((1ULL << 9U) | (1ULL << 18U))) !=
@@ -287,6 +287,8 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
     const bool is_integer_arithmetic =
         vex.pp == 1 && (opcode == 0xd4 || opcode == 0xfe ||
                         opcode == 0xfb || opcode == 0xfa);
+    if (vex.pp == 2 && !dqu_move)
+        return StepResult::UnsupportedInstruction;
     if (is_move_load || is_move_store) {
         if (opcode == 0x10 || opcode == 0x11 ||
             opcode == 0x28 || opcode == 0x29) {
