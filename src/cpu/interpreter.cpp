@@ -269,19 +269,37 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
         return StepResult::Executed;
     }
 
-    const bool is_move_load = opcode == 0x10 || opcode == 0x28;
-    const bool is_move_store = opcode == 0x11 || opcode == 0x29;
-    const bool aligned_move = opcode == 0x28 || opcode == 0x29;
-    const bool is_and = opcode == 0x54;
+    const bool dqa_move = (opcode == 0x6f || opcode == 0x7f) && vex.pp == 1;
+    const bool dqu_move = (opcode == 0x6f || opcode == 0x7f) && vex.pp == 2;
+    const bool is_move_load = opcode == 0x10 || opcode == 0x28 ||
+                              (opcode == 0x6f && (dqa_move || dqu_move));
+    const bool is_move_store = opcode == 0x11 || opcode == 0x29 ||
+                               (opcode == 0x7f && (dqa_move || dqu_move));
+    const bool aligned_move = opcode == 0x28 || opcode == 0x29 || dqa_move;
+    const bool is_and = opcode == 0x54 || (opcode == 0xdb && vex.pp == 1);
     const bool is_andn = opcode == 0x55;
-    const bool is_or = opcode == 0x56;
-    const bool is_xor = opcode == 0x57;
+    const bool is_or = opcode == 0x56 || (opcode == 0xeb && vex.pp == 1);
+    const bool is_xor = opcode == 0x57 || (opcode == 0xef && vex.pp == 1);
     const bool is_add = opcode == 0x58;
     const bool is_sub = opcode == 0x5c;
     const bool is_mul = opcode == 0x59;
     const bool is_div = opcode == 0x5e;
-    if (!(is_move_load || is_move_store || is_and || is_andn || is_or || is_xor ||
-          is_add || is_sub || is_mul || is_div))
+    const bool is_integer_arithmetic =
+        vex.pp == 1 && (opcode == 0xd4 || opcode == 0xfe ||
+                        opcode == 0xfb || opcode == 0xfa);
+    if (is_move_load || is_move_store) {
+        if (opcode == 0x10 || opcode == 0x11 ||
+            opcode == 0x28 || opcode == 0x29) {
+            if (vex.pp > 1) return StepResult::UnsupportedInstruction;
+        } else if (!dqa_move && !dqu_move) {
+            return StepResult::UnsupportedInstruction;
+        }
+    } else if (!(is_and || is_andn || is_or || is_xor ||
+                 is_add || is_sub || is_mul || is_div ||
+                 is_integer_arithmetic)) {
+        return StepResult::UnsupportedInstruction;
+    }
+    if ((is_move_load || is_move_store) && vex.vvvv != 0x0fU)
         return StepResult::UnsupportedInstruction;
 
     std::uint8_t modrm = 0;
@@ -307,7 +325,7 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
         if (aligned_move && (address & (width - 1U)) != 0)
             return StepResult::GeneralProtectionFault;
         if (is_move_load || is_and || is_andn || is_or || is_xor ||
-            is_add || is_sub || is_mul || is_div) {
+            is_add || is_sub || is_mul || is_div || is_integer_arithmetic) {
             if (!memory.read(address,
                     std::span<std::byte>{source2}.first(width)))
                 return StepResult::MemoryFault;
@@ -353,6 +371,28 @@ StepResult execute_vex(CpuState& state, Memory& memory, std::uint64_t pc,
                     std::to_integer<unsigned char>(source2[i]));
                 else if (is_or) result[i] = source1[i] | source2[i];
                 else result[i] = source1[i] ^ source2[i];
+            }
+        } else if (is_integer_arithmetic) {
+            const std::size_t lane_size =
+                (opcode == 0xd4 || opcode == 0xfb) ? 8U : 4U;
+            const bool add = opcode == 0xd4 || opcode == 0xfe;
+            for (std::size_t lane = 0; lane < width; lane += lane_size) {
+                std::uint64_t lhs = 0;
+                std::uint64_t rhs = 0;
+                for (std::size_t byte = 0; byte < lane_size; ++byte) {
+                    lhs |= static_cast<std::uint64_t>(
+                        std::to_integer<unsigned char>(source1[lane + byte]))
+                        << (byte * 8U);
+                    rhs |= static_cast<std::uint64_t>(
+                        std::to_integer<unsigned char>(source2[lane + byte]))
+                        << (byte * 8U);
+                }
+                const std::uint64_t mask = lane_size == 8U
+                    ? UINT64_MAX : 0xffffffffULL;
+                const std::uint64_t value = (add ? lhs + rhs : lhs - rhs) & mask;
+                for (std::size_t byte = 0; byte < lane_size; ++byte)
+                    result[lane + byte] =
+                        static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);
             }
         } else {
             const std::size_t lane_size = vex.pp == 1 ? 8U : 4U;

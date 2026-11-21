@@ -408,7 +408,7 @@ Added XGETBV and XSETBV for XCR0 index 0, including CR4.OSXSAVE checks, XSETBV p
 
 ### v0.68.0 — XSAVE/XRSTOR and YMM upper-half state
 
-Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. Initial AVX VEX.0F support: 128-/256-bit VADDPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. AVX2 is not implemented.
+Added 256-bit YMM state storage and standard-format XSAVE/XRSTOR for the currently modeled x87, SSE, and YMM upper-half components. XCR0 can now enable bits 0-2 with architectural dependency checks. XSAVE/XRSTOR require a 64-byte-aligned area and, in this first implementation, the request mask must exactly match XCR0; compacted format and partial component masks are not supported. CPUID now exposes XSAVE/OSXSAVE and leaf 0xD sizing for the modeled state components. Initial AVX VEX.0F support: 128-/256-bit VADDPS, VXORPS, VMOVUPS/VMOVAPS, VZEROUPPER, and VZEROALL. An initial AVX2 integer subset: VPADDQ/VPADDD, VPSUBQ/VPSUBD, VPAND/VPOR/VPXOR, and 256-bit YMM integer lanes.
 
 
 ### v0.68.1 — CPUID xstate feature tests
@@ -424,3 +424,8 @@ Added two-byte and three-byte VEX prefix decoding for the 0F opcode map and init
 ### v0.70.0 — AVX double-precision and bitwise forms
 
 Extended the VEX.0F subset with packed double-precision arithmetic (VADDPD/VSUBPD/VMULPD/VDIVPD), packed bitwise AND/ANDN/OR/XOR forms for PS and PD, and 128-/256-bit unaligned/aligned packed double move encodings. Tests cover VADDPD and VANDNPS. This remains a subset of AVX; AVX2 and many AVX instructions are still missing, and CPUID continues to avoid advertising AVX prematurely.
+
+
+### v0.71.0 — Initial AVX2 packed integer subset
+
+Added VEX.66 integer vector operations for VPADDQ/VPADDD, VPSUBQ/VPSUBD, VPAND/VPOR/VPXOR, and 256-bit YMM lanes. Added VMOVDQA/VMOVDQU encodings to the VEX move decoder with aligned/unaligned memory behavior. Tests cover 256-bit VPADDQ and VPXOR. This is only a small AVX2 subset; CPUID does not yet advertise AVX2.

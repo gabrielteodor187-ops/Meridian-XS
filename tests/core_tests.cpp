@@ -3631,6 +3631,70 @@ void test_avx_double_and_bitwise_operations() {
                 "VANDNPS should compute NOT(source1) AND source2");
 }
 
+
+void test_avx2_packed_integer_operations_subset() {
+    using meridian::cpu::StepResult;
+    meridian::core::GuestMemory memory{0x32200, 0x100};
+    const std::array<std::byte, 5> vpaddq{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xd4}, std::byte{0xc2}
+    };
+    const std::array<std::byte, 5> vpxor{
+        std::byte{0xc4}, std::byte{0xe1}, std::byte{0x75},
+        std::byte{0xef}, std::byte{0xc2}
+    };
+    require(memory.write(0x32200, vpaddq), "VPADDQ instruction should load");
+    require(memory.write(0x32210, vpxor), "VPXOR instruction should load");
+    meridian::cpu::CpuState state{};
+    state.rip = 0x32200;
+    state.control_registers[4] = (1ULL << 9U) | (1ULL << 18U);
+    state.xcr0 = 7;
+    const auto put = [&](std::array<std::byte, 16>& target,
+                         std::size_t lane, std::uint64_t value) {
+        for (std::size_t byte = 0; byte < 8; ++byte)
+            target[lane * 8U + byte] =
+                static_cast<std::byte>((value >> (byte * 8U)) & 0xffU);
+    };
+    const auto get = [&](const std::array<std::byte, 16>& source,
+                         std::size_t lane) {
+        std::uint64_t value = 0;
+        for (std::size_t byte = 0; byte < 8; ++byte)
+            value |= static_cast<std::uint64_t>(
+                std::to_integer<unsigned char>(source[lane * 8U + byte]))
+                << (byte * 8U);
+        return value;
+    };
+    put(state.xmm[1], 0, 10);
+    put(state.xmm[1], 1, 20);
+    put(state.ymm_high[1], 0, 30);
+    put(state.ymm_high[1], 1, 40);
+    put(state.xmm[2], 0, 3);
+    put(state.xmm[2], 1, 4);
+    put(state.ymm_high[2], 0, 5);
+    put(state.ymm_high[2], 1, 6);
+    const meridian::cpu::Interpreter interpreter{};
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPADDQ.256 should execute");
+    require(get(state.xmm[0], 0) == 13 && get(state.xmm[0], 1) == 24 &&
+            get(state.ymm_high[0], 0) == 35 &&
+            get(state.ymm_high[0], 1) == 46,
+            "VPADDQ should add four independent 64-bit YMM lanes");
+
+    state.rip = 0x32210;
+    state.xmm[1].fill(std::byte{0xf0});
+    state.ymm_high[1].fill(std::byte{0xf0});
+    state.xmm[2].fill(std::byte{0x0f});
+    state.ymm_high[2].fill(std::byte{0x0f});
+    require(interpreter.step(state, memory) == StepResult::Executed,
+            "VPXOR.256 should execute");
+    for (const auto byte : state.xmm[0])
+        require(byte == std::byte{0xff},
+                "VPXOR should XOR the lower 128-bit lane");
+    for (const auto byte : state.ymm_high[0])
+        require(byte == std::byte{0xff},
+                "VPXOR should XOR the upper 128-bit lane");
+}
+
 void test_cpu_state_reset() {
     meridian::cpu::CpuState state{};
     state.gpr[0] = 99;
@@ -3710,6 +3774,7 @@ int main() {
         test_cpuid_xsave_leaf_and_osxsave();
         test_avx_vex_128_256_and_zero_upper();
         test_avx_double_and_bitwise_operations();
+        test_avx2_packed_integer_operations_subset();
 
         test_cpu_state_reset();
         test_interpreter();
